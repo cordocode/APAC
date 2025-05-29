@@ -4,5 +4,5 @@
 .envvenv/
 __pycache__/
 .env
-stocks.db
+.database/stocks.db
 database/stocks.db

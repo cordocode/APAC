@@ -1,15 +1,19 @@
-import os
 import sqlite3
 from datetime import datetime, timedelta
-
-
-BASE_DIR = os.path.dirname(__file__)          # …/database
-DB_PATH  = os.path.join(BASE_DIR, "stocks.db")
+import os
 
 def initialize_database():
-    """Creates the stock_prices table"""
-
-    conn = sqlite3.connect('stocks.db')
+    """
+    Creates the stock_prices table if it doesn't exist and populates 
+    with minute timestamps from 2018-2030 between 9:30 AM - 4:00 PM EST.
+    All ticker columns start as NULL.
+    Only needs to run once ever.
+    """
+    # Ensure database directory exists
+    os.makedirs('database', exist_ok=True)
+    
+    # Connect to database in the database folder
+    conn = sqlite3.connect('database/stocks.db')
     cursor = conn.cursor()
     
     # Create table with just timestamp column - tickers added dynamically
@@ -50,8 +54,6 @@ def initialize_database():
         current_minute = market_open
         while current_minute <= market_close:
             # Format as ISO 8601 with EST offset
-            # -05:00 for EST (standard time) or -04:00 for EDT (daylight time)
-            # For simplicity, using -05:00 throughout
             timestamp_str = current_minute.strftime("%Y-%m-%dT%H:%M:%S-05:00")
             timestamps.append((timestamp_str,))
             current_minute += timedelta(minutes=1)
