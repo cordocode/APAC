@@ -1,0 +1,49 @@
+CLEAR NEXT-ACTIONS ROADMAP (NO TABLES)
+
+Read this one breath at a time—finish the current line before looking at the next.
+
+-----------------------------------------------------------------
+
+1. CREATE THE PROJECT SKELETON
+   - What to do: make a folder `autotrader`, add an empty `README.md`, a `.env` with your Alpaca keys, and a new Python virtual‑env.
+   - Why: gives you a clean sandbox and one place to commit each win.
+
+2. DROP IN `db_manager.py` AND WRITE `initialize_database()` ONLY
+   - What to do: copy the schema from the guide, convert it into Python that opens `stocks.db`, creates the table, and pre‑loads the minute timestamps 2018‑01‑01→2030‑12‑31 (UTC 14:30‑21:00 each weekday).
+   - Why: you now have a file on disk that every other part of the bot can lean on. No other code matters until this works.
+
+3. ADD THE HELPER THAT GROWS COLUMNS AUTOMATICALLY (`add_ticker_if_missing`)
+   - What to do: still in `db_manager.py`, write a function that checks `PRAGMA table_info` and runs `ALTER TABLE ADD COLUMN` if the ticker column does not exist.
+   - Why: this lets the rest of the code ask for any ticker without exploding—you never touch the DB schema by hand again.
+
+4. SMOKE‑TEST WHAT YOU HAVE
+   - What to do: new file `smoke.py` with three lines:
+       from db_manager import initialize_database, add_ticker_if_missing
+       initialize_database()
+       add_ticker_if_missing("NVDA")
+       print("✓ DB ready")
+     Run it. If it prints without an error, commit.
+   - Why: proves the database exists and auto‑columns work.
+
+5. WRITE THE `HistoricalFetcher` CLASS
+   - What to do: new file `historical_fetcher.py`; in `__init__` keep the Alpaca key and a `requests.Session`; write `get_bars(ticker, start, end)` that calls Alpaca and returns Python dicts; then `backfill(ticker, start, end)` that pipes those dicts into `db_manager.insert_historical_data()`.
+   - Why: you fetch history many times, so caching the session and key once per object saves repeated setup.
+
+6. CONFIRM THE BACKFILL PATH
+   - What to do: quick script:
+       from historical_fetcher import HistoricalFetcher
+       fetcher = HistoricalFetcher()
+       fetcher.backfill("NVDA", "2024-01-02", "2024-01-03")
+     Then open the DB and make sure those two days now have JSON strings, not NULL, for NVDA.
+   - Why: proves `HistoricalFetcher` and the DB talk to each other.
+
+7. BUILD THE `WebStream` CLASS FOR LIVE BARS
+   - What to do: new file `websocket_handler.py`. In `__init__` store Alpaca key and list of symbols. `start()` sets up the StockDataStream and registers `on_bar_received`, which calls `db_manager.insert_minute_data()`. `stop()` cleanly shuts the stream.
+   - Why: each open websocket needs its own life‑cycle; wrapping it in a class keeps the connection state tucked away.
+
+8. RUN A TWO‑MINUTE LIVE TEST
+   - What to do: during market hours run a script that starts `WebStream(["NVDA"])`, sleeps 120 s, stops it. Then query the DB for today’s last two minutes and confirm they’re filled.
+   - Why: once live data lands in the same table as historical, data plumbing is essentially solved.
+
+9. STOP AND BREATHE
+   At this point you can fetch any missing history and stream live prices into the same table. Everything else (REST API, algo logic, crash recovery) can be tackled later, one item at a time.

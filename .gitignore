@@ -1,0 +1,8 @@
+#––– Editor / OS noise (optional but handy) –––#
+.vscode/              # VS Code settings
+.DS_Store             # macOS Finder metadata
+.envvenv/
+__pycache__/
+.env
+stocks.db
+database/stocks.db
