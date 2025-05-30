@@ -2,21 +2,24 @@ CLEAR NEXT-ACTIONS ROADMAP (NO TABLES)
 
 Read this one breath at a time—finish the current line before looking at the next.
 
+database/stocks.db is db location!!
+
 -----------------------------------------------------------------
 
-1. CREATE THE PROJECT SKELETON
+1. CREATE THE PROJECT SKELETON ✓
    - What to do: make a folder `autotrader`, add an empty `README.md`, a `.env` with your Alpaca keys, and a new Python virtual‑env.
    - Why: gives you a clean sandbox and one place to commit each win.
 
-2. DROP IN `db_manager.py` AND WRITE `initialize_database()` ONLY
-   - What to do: copy the schema from the guide, convert it into Python that opens `stocks.db`, creates the table, and pre‑loads the minute timestamps 2018‑01‑01→2030‑12‑31 (UTC 14:30‑21:00 each weekday).
+2. DROP IN `db_manager.py` AND WRITE `initialize_database()` ONLY ✓
+   - What to do: copy the schema from the guide, convert it into Python that opens `database/stocks.db`, creates the table, and pre‑loads the minute timestamps 2018‑01‑01→2030‑12‑31 (EST 9:30-16:00 each weekday).
    - Why: you now have a file on disk that every other part of the bot can lean on. No other code matters until this works.
+   - Note: Timestamps stored as '%Y-%m-%dT%H:%M:%S' in Eastern time (simpler than UTC conversion).
 
-3. ADD THE HELPER THAT GROWS COLUMNS AUTOMATICALLY (`add_ticker_if_missing`)
+3. ADD THE HELPER THAT GROWS COLUMNS AUTOMATICALLY (`add_ticker_if_missing`) ✓
    - What to do: still in `db_manager.py`, write a function that checks `PRAGMA table_info` and runs `ALTER TABLE ADD COLUMN` if the ticker column does not exist.
    - Why: this lets the rest of the code ask for any ticker without exploding—you never touch the DB schema by hand again.
 
-4. SMOKE‑TEST WHAT YOU HAVE
+4. SMOKE‑TEST WHAT YOU HAVE ✓
    - What to do: new file `smoke.py` with three lines:
        from db_manager import initialize_database, add_ticker_if_missing
        initialize_database()
@@ -25,11 +28,28 @@ Read this one breath at a time—finish the current line before looking at the n
      Run it. If it prints without an error, commit.
    - Why: proves the database exists and auto‑columns work.
 
-5. WRITE THE `HistoricalFetcher` CLASS
+5. COMPLETE THE CORE DATABASE FUNCTIONS IN `db_manager.py` ← YOU ARE HERE
+   - What to do: Add these essential functions that other modules will depend on:
+     a) `insert_historical_data(ticker, data_array)` - Takes array of {timestamp, ohlcv} objects and updates rows with JSON strings
+     b) `check_data_exists(ticker, start_date, end_date)` - Returns list of timestamp ranges where data is NULL
+     c) `get_historical_data(ticker, start_date, end_date)` - Fetches and parses JSON data back to Python dicts
+     d) `insert_minute_data(ticker, timestamp, ohlcv)` - Updates single row (for websocket use)
+     e) `get_latest_price(ticker)` - Returns most recent non-NULL entry
+   - Why: The HistoricalFetcher and WebSocket handlers need these to store/retrieve data. Building them first prevents circular dependencies.
+
+6. TEST YOUR DATABASE FUNCTIONS
+   - What to do: Create `test_db_functions.py` that:
+     a) Inserts fake OHLCV data for a few timestamps
+     b) Checks if data exists in those ranges
+     c) Retrieves the data and verifies it matches what you inserted
+     d) Gets the latest price
+   - Why: Confirms your database layer works perfectly before connecting to external APIs.
+
+7. WRITE THE `HistoricalFetcher` CLASS
    - What to do: new file `historical_fetcher.py`; in `__init__` keep the Alpaca key and a `requests.Session`; write `get_bars(ticker, start, end)` that calls Alpaca and returns Python dicts; then `backfill(ticker, start, end)` that pipes those dicts into `db_manager.insert_historical_data()`.
    - Why: you fetch history many times, so caching the session and key once per object saves repeated setup.
 
-6. CONFIRM THE BACKFILL PATH
+8. CONFIRM THE BACKFILL PATH
    - What to do: quick script:
        from historical_fetcher import HistoricalFetcher
        fetcher = HistoricalFetcher()
@@ -37,13 +57,19 @@ Read this one breath at a time—finish the current line before looking at the n
      Then open the DB and make sure those two days now have JSON strings, not NULL, for NVDA.
    - Why: proves `HistoricalFetcher` and the DB talk to each other.
 
-7. BUILD THE `WebStream` CLASS FOR LIVE BARS
+9. BUILD THE `WebStream` CLASS FOR LIVE BARS
    - What to do: new file `websocket_handler.py`. In `__init__` store Alpaca key and list of symbols. `start()` sets up the StockDataStream and registers `on_bar_received`, which calls `db_manager.insert_minute_data()`. `stop()` cleanly shuts the stream.
    - Why: each open websocket needs its own life‑cycle; wrapping it in a class keeps the connection state tucked away.
 
-8. RUN A TWO‑MINUTE LIVE TEST
-   - What to do: during market hours run a script that starts `WebStream(["NVDA"])`, sleeps 120 s, stops it. Then query the DB for today’s last two minutes and confirm they’re filled.
-   - Why: once live data lands in the same table as historical, data plumbing is essentially solved.
+10. RUN A TWO‑MINUTE LIVE TEST
+    - What to do: during market hours run a script that starts `WebStream(["NVDA"])`, sleeps 120 s, stops it. Then query the DB for today's last two minutes and confirm they're filled.
+    - Why: once live data lands in the same table as historical, data plumbing is essentially solved.
 
-9. STOP AND BREATHE
-   At this point you can fetch any missing history and stream live prices into the same table. Everything else (REST API, algo logic, crash recovery) can be tackled later, one item at a time.
+11. STOP AND BREATHE
+    At this point you can fetch any missing history and stream live prices into the same table. Everything else (REST API, algo logic, crash recovery) can be tackled later, one item at a time.
+
+IMPLEMENTATION NOTES:
+- All timestamps use Eastern time as '%Y-%m-%dT%H:%M:%S' (no timezone suffix)
+- OHLCV data stored as JSON strings: {"o": 450.23, "h": 451.00, "l": 449.50, "c": 450.75, "v": 1000000}
+- Every function that touches a ticker should call add_ticker_if_missing() first
+- Database location is always 'database/stocks.db' not just 'stocks.db'

@@ -1,5 +1,9 @@
-from db_manager import initialize_database
+from db_manager import initialize_database, add_ticker_if_missing
 
-print("checking DB configuration")
+# Initialize the database (creates table with timestamps)
 initialize_database()
-print("DB initialized")
+
+# Add a ticker column
+add_ticker_if_missing("NVDA")
+
+print("✓ DB ready")
