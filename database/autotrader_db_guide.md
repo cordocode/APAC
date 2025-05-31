@@ -3,6 +3,22 @@
 ## Overview
 A SQLite database system for automated stock trading that stores historical and real-time stock data. The database runs independently and provides data to trading algorithms.
 
+## Recent Implementation Updates
+
+### UTC Timestamp Conversion (CRITICAL FIX)
+- **Problem**: Initial implementation stored Eastern time timestamps, but Alpaca sends UTC
+- **Solution**: Database now stores all timestamps in UTC format with 'Z' suffix
+- **Format**: `YYYY-MM-DDTHH:MM:SSZ` (e.g., `2024-01-02T14:30:00Z`)
+- **Impact**: Ensures timestamp matching works correctly for both historical and real-time data
+
+### Optimized Database Functions
+1. **insert_historical_data()** - Now includes `AND {ticker} IS NULL` in UPDATE query to skip already-filled rows
+2. **check_data_exists()** - Simplified to return full date ranges instead of individual timestamps for efficient bulk fetching
+
+### New Implementation Files
+- **historical_pull.py** - HistoricalFetcher class using alpaca-py's StockHistoricalDataClient
+- **realtime_pull.py** - RealtimeStreamer class using alpaca-py's StockDataStream
+
 ## Data Flow - Order of Operations
 
 ### Path 1: Historical Data Request
@@ -34,13 +50,14 @@ CREATE TABLE stock_prices (
     AAPL TEXT,
     TSLA TEXT
 );
+```
 
 ### Key Design Decisions
 
 1. **Pre-populated Timestamps**
-   - Every minute from 9:30 AM to 4:00 PM EST
+   - Every minute from 9:30 AM to 4:00 PM EST (stored as UTC)
    - Every calendar day from 2018-01-01 to 2030-12-31
-   - ~3.9 million rows
+   - ~1.3 million rows
    - **ALL values start as NULL** until data is added
 
 2. **Data Storage Format**
@@ -52,9 +69,9 @@ CREATE TABLE stock_prices (
 ```
 /database_service/
 ├── db_manager.py          # Core database operations
-├── websocket_handler.py   # Alpaca websocket management
-├── historical_fetcher.py  # Fetch historical data from Alpaca
-├── api_endpoints.py       # REST endpoints for algorithms
+├── historical_pull.py     # Fetch historical data from Alpaca  
+├── realtime_pull.py       # Stream real-time data via websocket
+├── api_endpoints.py       # REST endpoints for algorithms (TODO)
 └── stocks.db             # SQLite database
 ```
 
@@ -65,7 +82,8 @@ CREATE TABLE stock_prices (
 **initialize_database()**
 ```
 # Creates the stock_prices table if it doesn't exist
-# Populates every minute from 2018-2030 between 9:30 AM - 4:00 PM EST (converted to UTC)
+# Populates every minute from 2018-2030 between 9:30 AM - 4:00 PM EST
+# Converts all timestamps to UTC before storing (adds 'Z' suffix)
 # All ticker columns start as NULL
 # Only needs to run once ever
 ```
@@ -81,9 +99,10 @@ CREATE TABLE stock_prices (
 **check_data_exists(ticker, start_date, end_date)**
 ```
 # First calls add_ticker_if_missing()
-# Queries database for NULL values in date range
-# Returns list of timestamp ranges where data is missing
-# Empty list means all data exists
+# Uses COUNT to check for NULL values in date range
+# Returns empty list if all data exists
+# Returns [{"start": start_date, "end": end_date}] if any NULLs found
+# Simplified for efficient bulk fetching
 ```
 
 **insert_historical_data(ticker, data_array)**
@@ -91,6 +110,7 @@ CREATE TABLE stock_prices (
 # First calls add_ticker_if_missing()
 # Takes array of {timestamp, ohlcv} objects
 # Updates each row with JSON string
+# ONLY updates rows where ticker IS NULL (won't overwrite existing data)
 # Uses UPDATE not INSERT since timestamps already exist
 # Handles bulk operations efficiently
 ```
@@ -118,262 +138,74 @@ CREATE TABLE stock_prices (
 # Returns {timestamp, ohlcv} or None if no data
 ```
 
-### historical_fetcher.py - Alpaca Historical Data
+### historical_pull.py - Alpaca Historical Data
 
-**fetch_and_store_historical(ticker, start_date, end_date)**
+**HistoricalFetcher class**
 ```
-# Main function that orchestrates historical data fetch
-# Calls db_manager.check_data_exists() first
-# If data missing, connects to Alpaca Historical API
-# Fetches 1-minute bars for date range
-# Formats Alpaca response to match our schema
-# Calls db_manager.insert_historical_data()
-# Returns status (already exists, fetched, error)
-```
-
-**handle_rate_limits()**
-```
-# Tracks API calls to avoid hitting limits
-# Returns wait time if limit reached
-# Implements exponential backoff if needed
+# Uses alpaca-py's StockHistoricalDataClient
+# Converts date strings to UTC timestamps for database compatibility
+# fetch_and_store() method:
+  - Calls check_data_exists() to see what's needed
+  - If data missing, fetches from Alpaca
+  - Converts Alpaca bar objects to our format
+  - Stores via insert_historical_data()
+  - Returns status and row count
 ```
 
-**backfill_missed_realtime_data(ticker, last_known_timestamp)**
-```
-# Called during crash recovery
-# Fetches data between last_known_timestamp and now
-# Fills gaps when websocket was disconnected
-# Uses same historical API but for recent timeframe
-```
+### realtime_pull.py - Real-time Data Management
 
-### websocket_handler.py - Real-time Data Management
-
-**initialize_stream()**
+**RealtimeStreamer class**
 ```
-# Creates Alpaca websocket connection
-# Sets up callback for incoming data
-# Must be called on service startup
-```
-
-**subscribe_ticker(ticker, algo_id)**
-```
-# Implements reference counting for subscriptions
-# If first subscriber for ticker, starts websocket
-# Increments counter for existing subscriptions
-# Returns current subscription count
-```
-
-**unsubscribe_ticker(ticker, algo_id)**
-```
-# Decrements reference counter
-# If last subscriber, stops websocket for ticker
-# Cleans up subscription tracking
-# Returns whether stream was closed
-```
-
-**on_bar_received(bar)**
-```
-# Callback function for websocket data
-# Formats incoming bar to our ohlcv structure
-# Calls db_manager.insert_minute_data()
-# Handles any websocket errors gracefully
-```
-
-**check_active_streams()**
-```
-# Returns dict of {ticker: subscriber_count}
-# Used for crash recovery
-# Helps debug which streams are active
-```
-
-**restart_streams_for_active_algos()**
-```
-# Called on service restart
-# Queries all algorithms for their needs
-# Re-establishes dropped websocket connections
-```
-
-### api_endpoints.py - REST Interface
-
-**POST /request_data**
-```
-# Main endpoint for algorithms requesting historical data
-# Expects: {ticker, start_date, end_date}
-# Checks database first via db_manager
-# If missing, calls historical_fetcher
-# Always returns data from database (single source of truth)
-# Response: {ticker, data[], fetched_from_api: bool}
-```
-
-**POST /subscribe_realtime**
-```
-# Starts real-time data flow for a ticker
-# Expects: {ticker, algo_id}
-# Calls websocket_handler.subscribe_ticker()
-# Response: {subscribed: true, active_count: N}
-```
-
-**POST /unsubscribe_realtime**
-```
-# Stops real-time data flow
-# Expects: {ticker, algo_id}
-# Calls websocket_handler.unsubscribe_ticker()
-# Response: {unsubscribed: true, stream_closed: bool}
-```
-
-**GET /get_latest**
-```
-# Quick endpoint for current price
-# Query param: ticker
-# Calls db_manager.get_latest_price()
-# Response: {timestamp, ohlcv} or 404 if no data
-```
-
-**GET /check_websocket_status**
-```
-# Debugging endpoint
-# Query param: ticker (optional)
-# Returns active websocket subscriptions
-# Helps verify what's currently streaming
-```
-
-**POST /startup_recovery**
-```
-# Called when service restarts
-# Triggers websocket_handler.restart_streams_for_active_algos()
-# Checks for data gaps and backfills if needed
-# Response: {streams_restarted: [], gaps_filled: []}
-```
-
-**GET /database_stats**
-```
-# Returns overall database health and statistics
-# Shows total rows, size on disk, tickers with data
-# For each ticker: first/last data point, total non-NULL entries
-# Helps monitor database growth and identify gaps
-```
-
-**POST /add_algorithm**
-```
-# Comprehensive endpoint for algorithm initialization
-# Expects: {algo_id, ticker, algo_type, needs_historical, date_range, needs_realtime}
-# Orchestrates entire setup process:
-#   - Adds ticker column if needed
-#   - Fetches historical data if required
-#   - Subscribes to websocket if needed
-# Returns: {data_ready: bool, websocket_active: bool, can_start: bool}
+# Uses alpaca-py's StockDataStream for websocket connection
+# handle_bar() callback:
+  - Receives bar data from websocket
+  - Converts to UTC timestamp format
+  - Stores via insert_minute_data()
+# subscribe() method manages symbol subscriptions
+# run() method starts the stream (blocks until stopped)
 ```
 
 ## Complete Process Flow Examples
 
 ### Example 1: Algorithm Requests Historical Data
 ```
-1. Algorithm calls POST /request_data for MSFT from Jan 1-15
-2. Endpoint calls db_manager.check_data_exists("MSFT", ...)
-3. add_ticker_if_missing("MSFT") runs automatically, adds column
-4. check_data_exists finds all NULLs, returns missing ranges
-5. historical_fetcher.fetch_and_store_historical() called
-6. Alpaca API returns only valid trading minutes (skips weekends/holidays)
-7. Data formatted and stored via db_manager.insert_historical_data()
-8. db_manager.get_historical_data() fetches fresh data
-9. Endpoint returns data to algorithm
+1. Algorithm needs MSFT data from Jan 1-15
+2. check_data_exists("MSFT", ...) returns [{"start": "...", "end": "..."}]
+3. HistoricalFetcher.fetch_and_store() called
+4. Alpaca API returns only valid trading minutes
+5. Data converted to UTC timestamps
+6. insert_historical_data() stores only in NULL cells
+7. get_historical_data() returns the complete dataset
 ```
 
 ### Example 2: Real-time Subscription
 ```
-1. Algorithm calls POST /subscribe_realtime for NVDA
-2. websocket_handler.subscribe_ticker("NVDA", "algo_001") called
-3. Reference counter: NVDA = 1 (first subscriber)
-4. Websocket stream started for NVDA
-5. As each minute bar arrives, on_bar_received() triggered
-6. Data immediately stored via db_manager.insert_minute_data()
-7. Algorithm polls GET /get_latest as needed for current price
-```
-
-### Example 3: Multiple Algorithms Same Ticker
-```
-1. Algo_001 subscribes to AAPL (counter: 1, stream starts)
-2. Algo_002 subscribes to AAPL (counter: 2, stream already active)
-3. Algo_001 unsubscribes (counter: 1, stream continues)
-4. Algo_002 unsubscribes (counter: 0, stream stops)
+1. RealtimeStreamer.subscribe(['NVDA'])
+2. Websocket connection established
+3. Every minute, handle_bar() receives new data
+4. Timestamp converted to UTC
+5. insert_minute_data() stores in database
+6. Algorithm can call get_latest_price() anytime
 ```
 
 ## Key Design Principles
 
 1. **Database as Single Source of Truth** - All data goes through DB
-2. **Automatic Column Management** - No manual ticker setup needed
-3. **Reference Counting** - Efficient websocket sharing
-4. **NULL as Unknown** - Simple way to track what data exists
-5. **Function-Based** - Each function has one clear purpose
+2. **UTC Timestamps Throughout** - Avoids timezone confusion
+3. **Automatic Column Management** - No manual ticker setup needed
+4. **Safe Re-fetching** - Won't overwrite existing data
+5. **Bulk Window Fetching** - Efficient API usage
 
-## Implementation Order
+## Current Implementation Status
 
-1. Create database with initialize_database()
-2. Build db_manager.py functions
-3. Test database operations manually
-4. Add historical_fetcher.py
-5. Create basic REST endpoints
-6. Test full historical data flow
-7. Add websocket functionality last
+✓ Database initialization with UTC timestamps
+✓ Core database functions with optimizations
+✓ Historical data fetcher (historical_pull.py)
+✓ Real-time websocket streamer (realtime_pull.py)
+→ Next: Test both Alpaca connections during market hours
+- TODO: REST API endpoints
+- TODO: Crash recovery logic
 
-## Error Handling Considerations
+## Testing Next Steps
 
-- Database connection failures
-- Alpaca API downtime
-- Rate limit responses
-- Websocket disconnections
-- Invalid date ranges
-- Missing tickers in Alpaca
-
-## Time Synchronization Strategy
-
-**All timestamps stored in UTC**
-- 9:30 AM EST = 14:30 UTC (standard time)
-- Database always uses UTC to avoid confusion
-
-**"Latest" price definition**
-- Always means most recent non-NULL timestamp
-- Accounts for potential 1-2 second websocket delay
-- No conflict between historical and real-time data
-
-## Rate Limit Management
-
-**Alpaca API Limits**
-- Historical data: 200 requests per minute
-- Each request can fetch multiple days of data
-- Strategy: Fetch in larger chunks when possible
-- Return clear error messages when limit hit
-- Queue requests if multiple algorithms need same data
-
-## Crash Recovery Process
-
-1. **On service startup**
-   - Call /startup_recovery endpoint
-   - Check which algorithms were active (need separate algo tracking)
-   - Identify last successful timestamp for each ticker
-
-2. **Backfill missing data**
-   - For each active ticker, find most recent non-NULL entry
-   - Use historical API to fill gap between last entry and current time
-   - Re-subscribe to necessary websockets
-
-3. **Notify algorithms**
-   - Return status of what was recovered
-   - Algorithms can decide whether to continue or restart
-
-## Storage Monitoring
-
-**Database growth tracking**
-- ~100 bytes per ticker per minute with JSON
-- 10 tickers × 390 minutes/day × 252 days = ~1M records/year actual data
-- Monitor disk usage via /database_stats endpoint
-- No automatic pruning for now (manual decision)
-
-## Missing Considerations Now Addressed
-
-1. **Timezone handling** - Everything in UTC
-2. **Crash recovery with backfill** - Added backfill_missed_realtime_data()
-3. **Rate limit specifics** - Clear limits and handling strategy
-4. **Database monitoring** - Stats endpoint for growth tracking
-5. **Algorithm initialization** - Single endpoint to handle all setup
-6. **Time sync between historical/realtime** - Latest = most recent non-NULL
+The next critical step is to test both historical_pull.py and realtime_pull.py during market hours to verify that data correctly flows from Alpaca into the database.

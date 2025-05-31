@@ -140,51 +140,6 @@ def insert_minute_data(ticker, timestamp, ohlcv_dict):
     finally:
         conn.close()
 
-def check_data_exists(ticker, start_date, end_date):
-    """
-    Checks whether any rows between start_date and end_date are still NULL
-    for the given ticker column.
-
-    Args:
-        ticker (str): Stock symbol (e.g., 'NVDA')
-        start_date (str): Start timestamp (e.g., '2024-01-02T14:30:00Z')
-        end_date (str): End timestamp (e.g., '2024-01-02T21:00:00Z')
-
-    Returns:
-        list: 
-          - [] if there are no missing data points in that range.
-          - [{"start": start_date, "end": end_date}] if any NULLs exist,
-            indicating you should fetch the entire span in one go.
-    """
-    add_ticker_if_missing(ticker)
-
-    conn = sqlite3.connect('database/stocks.db')
-    cursor = conn.cursor()
-
-    try:
-        # Count how many NULLs remain in this window
-        query = f"""
-            SELECT COUNT(*) 
-            FROM stock_prices 
-            WHERE minute_timestamp >= ?
-              AND minute_timestamp <= ?
-              AND {ticker} IS NULL
-        """
-        cursor.execute(query, (start_date, end_date))
-        missing_count = cursor.fetchone()[0]
-
-        if missing_count == 0:
-            # No gaps — everything is already populated
-            return []
-        # Some gaps exist — fetch the whole range
-        return [{"start": start_date, "end": end_date}]
-
-    except Exception as e:
-        print(f"Error checking data existence: {e}")
-        raise
-
-    finally:
-        conn.close()
 
 def get_historical_data(ticker, start_date, end_date):
     """
@@ -324,6 +279,53 @@ def insert_historical_data(ticker, data_array):
     except Exception as e:
         print(f"Error in bulk insert: {e}")
         conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+def check_data_exists(ticker, start_date, end_date):
+    """
+    Check if data exists for a ticker in the given date range.
+    Returns list of date ranges where data is missing (NULL).
+    
+    Args:
+        ticker: Stock symbol (e.g., 'NVDA')
+        start_date: Start timestamp (e.g., '2024-01-02T14:30:00Z')
+        end_date: End timestamp (e.g., '2024-01-02T21:00:00Z')
+    
+    Returns:
+        Empty list if all data exists, or
+        List with missing range: [{"start": start_date, "end": end_date}]
+    """
+    add_ticker_if_missing(ticker)
+    
+    conn = sqlite3.connect('database/stocks.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Count NULL values in the date range
+        query = f"""
+            SELECT COUNT(*) 
+            FROM stock_prices 
+            WHERE minute_timestamp >= ? 
+            AND minute_timestamp <= ?
+            AND {ticker} IS NULL
+        """
+        
+        cursor.execute(query, (start_date, end_date))
+        null_count = cursor.fetchone()[0]
+        
+        if null_count == 0:
+            # All data exists
+            return []
+        else:
+            # Some or all data is missing
+            # For simplicity, return the full range as missing
+            # (In a more complex implementation, you might return specific gaps)
+            return [{"start": start_date, "end": end_date}]
+            
+    except Exception as e:
+        print(f"Error checking data existence: {e}")
         raise
     finally:
         conn.close()

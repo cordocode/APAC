@@ -19,7 +19,7 @@ class HistoricalFetcher:
         )
         self.eastern = pytz.timezone('US/Eastern')
         self.utc = pytz.UTC
-    
+
     def fetch_and_store(self, ticker, start_date, end_date):
         """
         Main function to fetch historical data and store in database.
@@ -47,12 +47,24 @@ class HistoricalFetcher:
         
         # Fetch from Alpaca
         try:
-            # Create request - Alpaca expects datetime objects
+            # FIXED: Create datetime objects with explicit times to ensure minute bars
+            eastern = pytz.timezone('US/Eastern')
+            
+            # Parse dates and add market hours
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+            
+            # Set to market open/close times
+            start_dt = eastern.localize(start_dt.replace(hour=9, minute=30))
+            end_dt = eastern.localize(end_dt.replace(hour=16, minute=0))
+            
+            # Create request with timezone-aware datetimes
             request_params = StockBarsRequest(
                 symbol_or_symbols=ticker,
                 timeframe=TimeFrame.Minute,
-                start=datetime.strptime(start_date, '%Y-%m-%d'),
-                end=datetime.strptime(end_date, '%Y-%m-%d')
+                start=start_dt,
+                end=end_dt,
+                feed='iex'  # Explicitly use IEX feed for free tier
             )
             
             # Get the bars
@@ -60,34 +72,53 @@ class HistoricalFetcher:
             
             # Convert to our format
             data_array = []
-            for bar in bars[ticker]:  # Access by ticker symbol
-                # Convert Alpaca timestamp to our UTC format
-                timestamp = bar.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
-                
-                data_array.append({
-                    "timestamp": timestamp,
-                    "ohlcv": {
-                        "o": float(bar.open),
-                        "h": float(bar.high),
-                        "l": float(bar.low),
-                        "c": float(bar.close),
-                        "v": int(bar.volume)
+            
+            # Check if we got any bars back
+            try:
+                ticker_bars = list(bars[ticker])
+                if ticker_bars:
+                    for bar in ticker_bars:
+                        # Convert Alpaca timestamp to our UTC format
+                        timestamp = bar.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
+                        
+                        data_array.append({
+                            "timestamp": timestamp,
+                            "ohlcv": {
+                                "o": float(bar.open),
+                                "h": float(bar.high),
+                                "l": float(bar.low),
+                                "c": float(bar.close),
+                                "v": int(bar.volume)
+                            }
+                        })
+                    
+                    # Store in database
+                    rows_updated = insert_historical_data(ticker, data_array)
+                    
+                    return {
+                        "status": "fetched",
+                        "rows_updated": rows_updated,
+                        "data_points": len(data_array)
                     }
-                })
-            
-            # Store in database
-            rows_updated = insert_historical_data(ticker, data_array)
-            
-            return {
-                "status": "fetched",
-                "rows_updated": rows_updated,
-                "data_points": len(data_array)
-            }
-            
+                else:
+                    print(f"No data returned for {ticker} from {start_date} to {end_date}")
+                    return {
+                        "status": "no_data", 
+                        "rows_updated": 0,
+                        "data_points": 0
+                    }
+            except (KeyError, IndexError):
+                print(f"No data returned for {ticker} from {start_date} to {end_date}")
+                return {
+                    "status": "no_data", 
+                    "rows_updated": 0,
+                    "data_points": 0
+                }
+                
         except Exception as e:
             print(f"Error fetching data: {e}")
             return {"status": "error", "error": str(e)}
-    
+
     def _convert_to_utc_timestamp(self, date_str, time_str):
         """Convert date and time to UTC timestamp string."""
         # Combine date and time
