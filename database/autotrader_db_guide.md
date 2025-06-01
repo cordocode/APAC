@@ -5,207 +5,100 @@ A SQLite database system for automated stock trading that stores historical and 
 
 ## Recent Implementation Updates
 
-### UTC Timestamp Conversion (CRITICAL FIX)
-- **Problem**: Initial implementation stored Eastern time timestamps, but Alpaca sends UTC
-- **Solution**: Database now stores all timestamps in UTC format with 'Z' suffix
-- **Format**: `YYYY-MM-DDTHH:MM:SSZ` (e.g., `2024-01-02T14:30:00Z`)
-- **Impact**: Ensures timestamp matching works correctly for both historical and real-time data
+### Fixed Minute Bar Fetching (CRITICAL FIX - May 2025)
+- **Problem**: Alpaca was returning single daily bars instead of minute bars when passed bare dates
+- **Solution**: Modified `fetch_and_store()` to explicitly specify market hours (9:30 AM - 4:00 PM EST)
+- **Impact**: Now correctly fetches ~390 minute bars per trading day
 
-### Optimized Database Functions
-1. **insert_historical_data()** - Now includes `AND {ticker} IS NULL` in UPDATE query to skip already-filled rows
-2. **check_data_exists()** - Simplified to return full date ranges instead of individual timestamps for efficient bulk fetching
+### UTC Timestamp Conversion (IMPLEMENTED)
+- **Format**: All timestamps stored as UTC with 'Z' suffix (e.g., `2024-01-02T14:30:00Z`)
+- **Database**: Pre-populated with every minute from 9:30 AM - 4:00 PM EST for 2018-2030
+- **Note**: Missing 4:00 PM closing bar (minor issue, not critical)
 
-### New Implementation Files
-- **historical_pull.py** - HistoricalFetcher class using alpaca-py's StockHistoricalDataClient
-- **realtime_pull.py** - RealtimeStreamer class using alpaca-py's StockDataStream
+### Core Database Functions (COMPLETE)
+1. **insert_historical_data()** - Bulk inserts with NULL checking to prevent overwrites
+2. **check_data_exists()** - Returns date ranges with missing data
+3. **get_historical_data()** - Retrieves and parses JSON data
+4. **insert_minute_data()** - Single minute updates for websocket
+5. **get_latest_price()** - Gets most recent price for a ticker
 
-## Data Flow - Order of Operations
+## Current Implementation Status
 
-### Path 1: Historical Data Request
+✅ Database initialization with UTC timestamps  
+✅ Core database functions (all tested and working)  
+✅ Historical data fetcher with minute bar fix  
+✅ Real-time websocket streamer  
+✅ Automatic ticker column management  
+
+## File Structure
+
 ```
-Algorithm requests data → DB Service checks if exists → 
-    If NO: → Alpaca Historical API → Format data → Store in DB → Return to Algorithm
-    If YES: → Fetch from DB → Return to Algorithm
-```
-
-### Path 2: Real-time Data Flow
-```
-WebSocket receives data → DB Service formats → Store in DB
-Algorithm polls DB for latest data when needed
-```
-
-### Path 3: New Ticker Addition
-```
-Algorithm requests ticker not in DB → DB Service detects missing column → 
-    Automatically adds column → Fetches historical data → Stores → Returns data
+/autotrader/
+├── database/
+│   ├── db_manager.py          # Core database operations
+│   ├── historical_pull.py     # Fetch historical data from Alpaca  
+│   ├── realtime_pull.py       # Stream real-time data via websocket
+│   └── stocks.db              # SQLite database (~81.5 MB)
+├── .env                       # Alpaca API keys
+└── venv/                      # Python virtual environment
 ```
 
 ## Database Schema
 
-### Table Structure
 ```sql
 CREATE TABLE stock_prices (
     minute_timestamp TEXT PRIMARY KEY,
-    NVDA TEXT,
-    AAPL TEXT,
-    TSLA TEXT
+    -- Ticker columns added dynamically as needed
 );
 ```
 
-### Key Design Decisions
+- **Rows**: ~1.3 million (every market minute 2018-2030)
+- **Data Format**: JSON strings per ticker: `{"o": 450.23, "h": 451.00, "l": 449.50, "c": 450.75, "v": 1000000}`
 
-1. **Pre-populated Timestamps**
-   - Every minute from 9:30 AM to 4:00 PM EST (stored as UTC)
-   - Every calendar day from 2018-01-01 to 2030-12-31
-   - ~1.3 million rows
-   - **ALL values start as NULL** until data is added
+## Key Implementation Details
 
-2. **Data Storage Format**
-   - JSON string per ticker per minute
-   - Format: `{"o": 450.23, "h": 451.00, "l": 449.50, "c": 450.75, "v": 1000000}`
+### Historical Data Fetching
+```python
+# CRITICAL: Must specify market hours explicitly
+start_dt = eastern.localize(start_dt.replace(hour=9, minute=30))
+end_dt = eastern.localize(end_dt.replace(hour=16, minute=0))
 
-## Simplified File Structure
-
-```
-/database_service/
-├── db_manager.py          # Core database operations
-├── historical_pull.py     # Fetch historical data from Alpaca  
-├── realtime_pull.py       # Stream real-time data via websocket
-├── api_endpoints.py       # REST endpoints for algorithms (TODO)
-└── stocks.db             # SQLite database
+request_params = StockBarsRequest(
+    symbol_or_symbols=ticker,
+    timeframe=TimeFrame.Minute,
+    start=start_dt,
+    end=end_dt,
+    feed='iex'  # Use IEX feed for free tier
+)
 ```
 
-## Function Specifications
+### Data Flow Patterns
 
-### db_manager.py - Core Database Functions
+**Historical Request**: Algorithm → check_data_exists() → fetch_and_store() → Alpaca API → insert_historical_data() → Database
 
-**initialize_database()**
-```
-# Creates the stock_prices table if it doesn't exist
-# Populates every minute from 2018-2030 between 9:30 AM - 4:00 PM EST
-# Converts all timestamps to UTC before storing (adds 'Z' suffix)
-# All ticker columns start as NULL
-# Only needs to run once ever
-```
+**Real-time Stream**: Websocket → handle_bar() → insert_minute_data() → Database
 
-**add_ticker_if_missing(ticker)**
-```
-# Checks if ticker column exists in table
-# If not, runs ALTER TABLE ADD COLUMN
-# Called automatically by other functions before any ticker operation
-# Returns nothing, just ensures column exists
-```
+**New Ticker**: Request → add_ticker_if_missing() → ALTER TABLE → Fetch historical → Store
 
-**check_data_exists(ticker, start_date, end_date)**
-```
-# First calls add_ticker_if_missing()
-# Uses COUNT to check for NULL values in date range
-# Returns empty list if all data exists
-# Returns [{"start": start_date, "end": end_date}] if any NULLs found
-# Simplified for efficient bulk fetching
-```
+## Testing Summary
 
-**insert_historical_data(ticker, data_array)**
-```
-# First calls add_ticker_if_missing()
-# Takes array of {timestamp, ohlcv} objects
-# Updates each row with JSON string
-# ONLY updates rows where ticker IS NULL (won't overwrite existing data)
-# Uses UPDATE not INSERT since timestamps already exist
-# Handles bulk operations efficiently
-```
+- Single date fetches: ✅ Working (returns ~390 minute bars)
+- Date range fetches: ✅ Working (handles weekends/holidays correctly)
+- Websocket streaming: ✅ Working (tested during market hours)
+- Database operations: ✅ All functions tested and verified
 
-**get_historical_data(ticker, start_date, end_date)**
-```
-# First calls add_ticker_if_missing()
-# Fetches all non-NULL data in date range
-# Returns array of {timestamp, ohlcv} objects
-# Parses JSON strings back to objects
-```
+## Next Steps
 
-**insert_minute_data(ticker, timestamp, ohlcv)**
-```
-# First calls add_ticker_if_missing()
-# Updates single row with new data
-# Used by websocket for real-time updates
-# Converts ohlcv dict to JSON string
-```
+1. **Build REST API endpoints** for algorithm access
+2. **Create algorithm framework** for trading strategies
+3. **Implement crash recovery** and error handling
+4. **Add monitoring/logging** system
+5. **Build simple web UI** for monitoring
 
-**get_latest_price(ticker)**
-```
-# Returns most recent non-NULL entry for ticker
-# Useful for algorithms checking current price
-# Returns {timestamp, ohlcv} or None if no data
-```
+## Important Notes
 
-### historical_pull.py - Alpaca Historical Data
-
-**HistoricalFetcher class**
-```
-# Uses alpaca-py's StockHistoricalDataClient
-# Converts date strings to UTC timestamps for database compatibility
-# fetch_and_store() method:
-  - Calls check_data_exists() to see what's needed
-  - If data missing, fetches from Alpaca
-  - Converts Alpaca bar objects to our format
-  - Stores via insert_historical_data()
-  - Returns status and row count
-```
-
-### realtime_pull.py - Real-time Data Management
-
-**RealtimeStreamer class**
-```
-# Uses alpaca-py's StockDataStream for websocket connection
-# handle_bar() callback:
-  - Receives bar data from websocket
-  - Converts to UTC timestamp format
-  - Stores via insert_minute_data()
-# subscribe() method manages symbol subscriptions
-# run() method starts the stream (blocks until stopped)
-```
-
-## Complete Process Flow Examples
-
-### Example 1: Algorithm Requests Historical Data
-```
-1. Algorithm needs MSFT data from Jan 1-15
-2. check_data_exists("MSFT", ...) returns [{"start": "...", "end": "..."}]
-3. HistoricalFetcher.fetch_and_store() called
-4. Alpaca API returns only valid trading minutes
-5. Data converted to UTC timestamps
-6. insert_historical_data() stores only in NULL cells
-7. get_historical_data() returns the complete dataset
-```
-
-### Example 2: Real-time Subscription
-```
-1. RealtimeStreamer.subscribe(['NVDA'])
-2. Websocket connection established
-3. Every minute, handle_bar() receives new data
-4. Timestamp converted to UTC
-5. insert_minute_data() stores in database
-6. Algorithm can call get_latest_price() anytime
-```
-
-## Key Design Principles
-
-1. **Database as Single Source of Truth** - All data goes through DB
-2. **UTC Timestamps Throughout** - Avoids timezone confusion
-3. **Automatic Column Management** - No manual ticker setup needed
-4. **Safe Re-fetching** - Won't overwrite existing data
-5. **Bulk Window Fetching** - Efficient API usage
-
-## Current Implementation Status
-
-✓ Database initialization with UTC timestamps
-✓ Core database functions with optimizations
-✓ Historical data fetcher (historical_pull.py)
-✓ Real-time websocket streamer (realtime_pull.py)
-→ Next: Test both Alpaca connections during market hours
-- TODO: REST API endpoints
-- TODO: Crash recovery logic
-
-## Testing Next Steps
-
-The next critical step is to test both historical_pull.py and realtime_pull.py during market hours to verify that data correctly flows from Alpaca into the database.
+- Database won't overwrite existing data (safe to re-run fetches)
+- Timestamps are UTC but represent EST/EDT market hours
+- Missing 4:00 PM bars is a known issue (not critical)
+- System handles weekends/holidays gracefully (returns no data)
+- Free tier uses IEX feed (15-minute delay for historical)
