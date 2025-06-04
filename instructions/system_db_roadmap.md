@@ -57,7 +57,7 @@ CREATE TABLE system_config (
 );
 
 -- Initial PIN setup
-INSERT INTO system_config (key, value) VALUES ('pin', '1234');
+INSERT INTO system_config (key, value) VALUES ('pin', '2020');
 ```
 
 ## Design Decisions & Rationale
