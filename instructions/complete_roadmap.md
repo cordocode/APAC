@@ -7,10 +7,11 @@ A personal wall-mounted trading terminal running on Raspberry Pi that automates 
 - **Frontend**: Simple HTML/JS dashboard with black background, white text
   - Cards have colored borders: green (profit), red (loss), white (break-even)
 - **API Server**: Flask endpoints connecting frontend to backend
-- **Orchestrator**: Background process running algorithms every minute
+- **Orchestrator**: Background process running algorithms every minute and managing WebSockets
 - **Algorithms**: Pluggable Python files making trading decisions
 - **Databases**: stocks.db (market data) and system.db (algorithm state)
 - **Integration**: Alpaca API wrapper for executing trades
+- **Real-time Data**: WebSocket streams managed by orchestrator
 
 ### What's Already Built ✅
 1. **stocks.db** - Pre-populated with 1.3M minute timestamps (2018-2030)
@@ -319,6 +320,7 @@ transaction_history = [
   ```
 - **Database path**: Code must run from parent directory of `system_databse/`
 - **Function calls**: Use exact function signatures from system_db_manager.py
+- **Note for WebSocket coordination**: API server does NOT manage WebSockets - that's the orchestrator's job
 
 **Critical Dependency Issue**: 
 - Frontend expects `/api/account/cash` which needs both alpaca_wrapper AND system_db_manager
@@ -348,23 +350,60 @@ from orchestra.alpaca_wrapper import AlpacaWrapper
   ```
 
 #### 3.2 Orchestrator (orchestrator.py)
-**Purpose**: Run algorithms every minute during market hours
+**Purpose**: Run algorithms every minute during market hours AND manage real-time WebSocket subscriptions
 
 **Important**: Orchestrator and frontend are completely separate processes
 - Orchestrator doesn't communicate with frontend
 - Frontend polls API independently
 - They coordinate through the database only
 
+**Core Responsibilities**:
+1. **Algorithm Execution**: Run each algorithm's logic every minute
+2. **WebSocket Management**: Intelligently manage real-time data streams
+3. **Trade Execution**: Execute trades via Alpaca and record transactions
+
+**WebSocket Management Architecture**:
+The orchestrator includes a `WebSocketManager` class that:
+- Tracks which tickers need real-time data based on running algorithms
+- Subscribes/unsubscribes to WebSocket streams as algorithms start/stop
+- Handles multiple algorithms using the same ticker (reference counting)
+- Automatically restores WebSocket connections on system restart
+
+**Key Components**:
+```python
+# Main orchestrator components
+class WebSocketManager:
+    def __init__(self)
+    def update_subscriptions(running_algorithms)  # Sync WebSocket subscriptions
+    def start_websocket_thread()  # Run WebSocket in separate thread
+    
+    # Internal tracking
+    active_tickers = {}  # {ticker: count} - tracks how many algorithms need each ticker
+```
+
 **Flow**:
-1. Check if market is open (EST timezone)
-2. Get all running algorithms from system.db via `system_db_manager.get_all_algorithms('running')`
-3. For each algorithm:
-   - Load the Python module from `/algorithms/{algorithm_type}.py`
-   - Get required data from stocks.db
-   - Get transaction history via `system_db_manager.get_transactions(algo_id)`
-   - Run algorithm logic with `algorithm.on_data(bars, transaction_history)`
-   - Execute any trades via Alpaca using AlpacaWrapper
-   - Record transactions via `system_db_manager.record_buy()` or `record_sell()`
+1. **Startup**:
+   - Check if market is open (EST timezone)
+   - Get all running algorithms from system.db
+   - Initialize WebSocketManager
+   - Start WebSocket subscriptions for all needed tickers
+   
+2. **Every Minute**:
+   - Get all running algorithms from system.db via `system_db_manager.get_all_algorithms('running')`
+   - Update WebSocket subscriptions (add new tickers, remove unused)
+   - For each algorithm:
+     - Load the Python module from `/algorithms/{algorithm_type}.py`
+     - Get required data from stocks.db
+     - Get transaction history via `system_db_manager.get_transactions(algo_id)`
+     - Run algorithm logic with `algorithm.on_data(bars, transaction_history)`
+     - Execute any trades via Alpaca using AlpacaWrapper
+     - Record transactions via `system_db_manager.record_buy()` or `record_sell()`
+
+3. **WebSocket Subscription Logic**:
+   - Count how many algorithms need each ticker
+   - Subscribe to new tickers when first algorithm needs them
+   - Unsubscribe only when NO algorithms need that ticker anymore
+   - Example: 2 algorithms using NVDA → NVDA WebSocket stays open until both stop
 
 **Critical Timezone Issue**: Market hours check must use Eastern Time, not server timezone.
 
@@ -373,6 +412,8 @@ from orchestra.alpaca_wrapper import AlpacaWrapper
 ```python
 import system_db_manager
 from orchestra.alpaca_wrapper import AlpacaWrapper
+from realtime_pull import RealtimeStreamer
+import threading
 # Dynamic import of algorithm modules
 ```
 
@@ -386,6 +427,16 @@ elif action == 'sell':
     fill_price = wrapper.place_market_sell(ticker, shares)
     system_db_manager.record_sell(algo_id, shares, fill_price)
 ```
+
+**System Restart Handling**:
+- On startup, orchestrator queries all running algorithms
+- WebSocketManager automatically subscribes to all needed tickers
+- No manual intervention required - system self-heals
+
+**Integration with Real-time Data**:
+- Uses `realtime_pull.RealtimeStreamer` class
+- Runs WebSocket in separate thread to not block algorithm execution
+- Data flows: WebSocket → stocks.db → algorithms read latest data
 
 ### Phase 4: Frontend
 
@@ -406,6 +457,8 @@ elif action == 'sell':
 
 **Market Hours Coordination**: Backend includes `"market_open": true/false` in API responses so frontend doesn't need to calculate EST time.
 
+**Real-time Data Note**: Frontend doesn't need to know about WebSockets - it just polls the API which reads from stocks.db where real-time data is stored.
+
 **Dependencies**: Needs all API endpoints working.
 
 ## File Structure & Integration Map
@@ -420,14 +473,16 @@ elif action == 'sell':
 │   └── card_calculations.py         # Frontend calculation engine
 ├── database/                         # Market data (pre-built)
 │   ├── stocks.db                     # Pre-populated market data
-│   └── db_manager.py                # Market data functions
+│   ├── db_manager.py                # Market data functions
+│   ├── historical_pull.py           # Historical data fetcher
+│   └── realtime_pull.py             # WebSocket streamer (managed by orchestrator)
 ├── orchestra/                        # Orchestration components
 │   └── alpaca_wrapper.py            # ✅ Alpaca API wrapper (COMPLETED)
 ├── algorithms/                       # Algorithm files (to be built)
 │   ├── sma_crossover.py
 │   └── [other_algorithm].py
 ├── api_server.py                     # Flask API (to be built)
-├── orchestrator.py                   # Algorithm runner (to be built)
+├── orchestrator.py                   # Algorithm runner + WebSocket manager (to be built)
 └── frontend/                         # Dashboard (to be built)
     ├── index.html
     ├── style.css
@@ -436,7 +491,7 @@ elif action == 'sell':
 
 **Import Dependencies**:
 - **api_server.py** imports: `system_db_manager`, `card_calculations`, `AlpacaWrapper`
-- **orchestrator.py** imports: `system_db_manager`, `AlpacaWrapper`, algorithm modules
+- **orchestrator.py** imports: `system_db_manager`, `AlpacaWrapper`, `RealtimeStreamer`, algorithm modules
 - **card_calculations.py** imports: `system_db_manager`
 - **Running location**: All Python files run from `/APAC/` root directory
 
@@ -500,6 +555,21 @@ elif action == 'sell':
 
 **Recommendation**: Option 3 - Include `"market_open": true` in API responses to avoid timezone math in JavaScript
 
+### 6. Real-time Data Flow
+**Critical Design**: WebSocket management is centralized in the orchestrator
+- **Why orchestrator**: Already knows all running algorithms and their tickers
+- **Reference counting**: Multiple algorithms can share same ticker WebSocket
+- **Data flow**: Alpaca WebSocket → realtime_pull.py → stocks.db → algorithms read
+- **Frontend unaware**: Frontend just polls API, doesn't know about WebSockets
+- **Restart resilience**: Orchestrator automatically restores all WebSocket connections
+
+**WebSocket Lifecycle**:
+1. Algorithm created → Orchestrator adds ticker to WebSocket subscriptions
+2. Multiple algorithms same ticker → WebSocket stays open (reference counted)
+3. Algorithm stopped → Orchestrator checks if any other algorithm needs that ticker
+4. Last algorithm using ticker stopped → WebSocket unsubscribed
+5. System restart → Orchestrator queries all algorithms and restores subscriptions
+
 ## Multiple Position Tracking Architecture
 **Critical Design Decision Made**: Algorithms can track multiple independent positions using transaction history
 
@@ -537,6 +607,8 @@ def record_buy(algo_id, shares, price):
 ### In orchestrator.py
 ```python
 wrapper = AlpacaWrapper()
+websocket_manager = WebSocketManager()
+
 for algorithm in running_algorithms:
     try:
         # Run algorithm logic
@@ -555,6 +627,13 @@ for algorithm in running_algorithms:
     except Exception as e:
         log_error(f"Algorithm {algorithm.id} crashed: {e}")
         continue  # Skip to next algorithm, don't crash orchestrator
+
+# WebSocket errors handled separately
+try:
+    websocket_manager.update_subscriptions(running_algorithms)
+except Exception as e:
+    log_error(f"WebSocket update failed: {e}")
+    # Continue running - don't crash on WebSocket issues
 ```
 
 ### In alpaca_wrapper.py ✅ **COMPLETED**
@@ -598,6 +677,15 @@ def get_algorithm(id):
 - Test with single algorithm
 - Verify transaction recording
 - Confirm orchestrator and frontend work independently
+- **WebSocket Testing**: 
+  - Start orchestrator with one algorithm
+  - Verify WebSocket opens for that ticker
+  - Add second algorithm with same ticker
+  - Verify WebSocket stays open
+  - Stop first algorithm
+  - Verify WebSocket still open
+  - Stop second algorithm
+  - Verify WebSocket closes
 
 ### Phase 4 Testing
 - Mock API responses initially
@@ -636,12 +724,31 @@ allocated = sum(algo['initial_capital'] for algo in running_algos)
 available = alpaca_cash - allocated
 ```
 
+### WebSocket Subscription Update
+```python
+# In orchestrator's WebSocketManager
+needed_tickers = {}
+for algo in running_algorithms:
+    ticker = algo['ticker']
+    needed_tickers[ticker] = needed_tickers.get(ticker, 0) + 1
+
+# Subscribe to new tickers
+for ticker in needed_tickers:
+    if ticker not in self.active_tickers:
+        self.streamer.subscribe(ticker)
+
+# Unsubscribe from unused tickers
+for ticker in list(self.active_tickers.keys()):
+    if ticker not in needed_tickers:
+        self.streamer.unsubscribe(ticker)
+```
+
 ## Missing Components to Add
 
 ### 1. Startup Script
 **Why Needed**: Raspberry Pi must auto-start everything on boot
 - Start API server
-- Start orchestrator
+- Start orchestrator (which handles WebSockets)
 - Open browser to dashboard
 
 ### 2. Configuration File
@@ -653,6 +760,7 @@ available = alpaca_cash - allocated
 **Why Needed**: Debug issues on headless Pi
 - Simple file-based logging
 - Rotate daily to prevent disk fill
+- Separate logs for orchestrator, API, and WebSocket events
 
 ## Build Sequence Summary
 
@@ -665,7 +773,10 @@ available = alpaca_cash - allocated
    - Built `orchestra/alpaca_wrapper.py` with all trading functions
    - Configured paper/real trading via .env variables
    - Next: Build algorithm framework and sma_crossover.py
-3. **Day 4-5**: API server and orchestrator  
+3. **Day 4-5**: API server and orchestrator (with WebSocket management)
+   - Build orchestrator with integrated WebSocketManager
+   - Implement reference counting for shared tickers
+   - Add restart resilience for WebSocket connections
 4. **Day 6-7**: Frontend and testing
 5. **Day 8**: Polish, startup scripts, deployment
 
@@ -673,6 +784,9 @@ available = alpaca_cash - allocated
 - Trades execute correctly
 - P&L calculations match expected values (current value - initial allocation)
 - Available cash for new algorithms = Alpaca cash - sum of allocations
+- WebSockets open/close intelligently based on algorithm needs
+- WebSockets automatically restore after system restart
+- Multiple algorithms can share same ticker WebSocket
 - Survives Raspberry Pi restart
 - Runs 30 days without intervention
 - Dashboard updates every 30 seconds during market hours
