@@ -9,13 +9,17 @@ from db_manager import insert_minute_data
 # Load environment variables
 load_dotenv()
 
+# Get feed type from environment
+ALPACA_FEED = os.getenv('ALPACA_FEED', 'iex')
+
 class RealtimeStreamer:
     def __init__(self):
         # Initialize websocket client
         self.stream = StockDataStream(
             api_key=os.getenv('ALPACA_API_KEY'),
             secret_key=os.getenv('ALPACA_SECRET'),
-            raw_data=False  # Get parsed objects, not raw JSON
+            raw_data=False,  # Get parsed objects, not raw JSON
+            feed=ALPACA_FEED  # Add this line
         )
         self.subscribed_symbols = set()
         self.utc = pytz.UTC

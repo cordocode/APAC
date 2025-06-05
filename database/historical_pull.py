@@ -64,7 +64,7 @@ class HistoricalFetcher:
                 timeframe=TimeFrame.Minute,
                 start=start_dt,
                 end=end_dt,
-                feed='iex'  # Explicitly use IEX feed for free tier
+                feed=os.getenv('ALPACA_FEED', 'iex')  
             )
             
             # Get the bars

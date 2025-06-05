@@ -20,6 +20,7 @@ A personal wall-mounted trading terminal running on Raspberry Pi that automates 
 5. **system.db** - Complete database with algorithm_instances, transactions, system_config tables
 6. **system_db_manager.py** - All core database functions with UTC timezone handling
 7. **card_calculations.py** - Complete P&L calculation engine for frontend display
+8. **alpaca_wrapper.py** - ✅ **COMPLETED** - Alpaca trading API interface
 
 ## Build Order & Dependencies
 
@@ -204,20 +205,50 @@ get_algorithm_with_calculations(algo_id: int, current_price: float) -> Optional[
 }
 ```
 
-#### 1.3 Alpaca Wrapper (alpaca_wrapper.py)
+#### 1.3 Alpaca Wrapper (alpaca_wrapper.py) ✅ **COMPLETED**
 **Purpose**: Interface to Alpaca trading API
 
-**Core Functions**:
+**File Location**: `orchestra/alpaca_wrapper.py`
+
+**Core Functions Built**:
 ```python
-validate_ticker(symbol) -> bool
-get_account_cash() -> float  # Total cash in Alpaca account
-place_market_buy(ticker, shares) -> fill_price
-place_market_sell(ticker, shares) -> fill_price
+class AlpacaWrapper:
+    def __init__(self)  # Initializes with paper/real mode from .env
+    def validate_ticker(symbol: str) -> bool
+    def get_account_cash() -> float  # Total cash in Alpaca account
+    def place_market_buy(ticker: str, shares: int) -> float  # Returns fill price
+    def place_market_sell(ticker: str, shares: int) -> float  # Returns fill price
 ```
 
-**Note**: `get_account_cash()` returns total Alpaca account cash, not available for allocation. The API layer calculates available allocation cash.
+**Import Statement**:
+```python
+from orchestra.alpaca_wrapper import AlpacaWrapper
+```
 
-**Dependency Note**: Orchestrator will use these functions, but orchestrator doesn't exist yet.
+**Environment Variables Required in .env**:
+```bash
+# Alpaca API credentials
+ALPACA_API_KEY=your_api_key
+ALPACA_SECRET=your_secret_key
+
+# Trading mode configuration
+ALPACA_PAPER=True  # Set to False for real trading
+ALPACA_FEED=iex    # Use 'iex' for free tier, 'sip' for paid tier
+```
+
+**Critical Production vs Paper Trading**:
+- **Paper Trading**: Set `ALPACA_PAPER=True` in .env (default)
+- **Real Trading**: Set `ALPACA_PAPER=False` in .env
+- **Data Feed**: Free tier must use `ALPACA_FEED=iex`, paid tier can use `ALPACA_FEED=sip`
+- These settings apply to all Alpaca integrations (historical_pull, realtime_pull, alpaca_wrapper)
+
+**Integration Notes**:
+- Wrapper prints mode on initialization: "✅ Alpaca client initialized in PAPER mode with iex feed"
+- All timestamps handled in UTC to match system databases
+- Market orders only (no limit orders currently)
+- Includes retry logic for order fills
+
+**Note**: `get_account_cash()` returns total Alpaca account cash, not available for allocation. The API layer calculates available allocation cash.
 
 ### Phase 2: Algorithm Framework
 
@@ -284,7 +315,7 @@ transaction_history = [
   ```python
   import system_db_manager
   import card_calculations
-  import alpaca_wrapper  # When built
+  from orchestra.alpaca_wrapper import AlpacaWrapper  # Now available!
   ```
 - **Database path**: Code must run from parent directory of `system_databse/`
 - **Function calls**: Use exact function signatures from system_db_manager.py
@@ -300,7 +331,7 @@ transaction_history = [
 ```python
 import system_db_manager
 import card_calculations  
-import alpaca_wrapper  # When built
+from orchestra.alpaca_wrapper import AlpacaWrapper
 ```
 
 **Critical Function Calls**:
@@ -309,7 +340,12 @@ import alpaca_wrapper  # When built
 - Get card data: `card_calculations.get_algorithm_with_calculations(id, current_price)`
 - Create algorithm: `system_db_manager.create_algorithm(ticker, algo_type, initial_capital)`
 - Stop algorithm: `system_db_manager.stop_algorithm(id)`
-- Available cash: `alpaca_wrapper.get_account_cash() - SUM(initial_capital from running algorithms)`
+- Available cash: 
+  ```python
+  wrapper = AlpacaWrapper()
+  alpaca_cash = wrapper.get_account_cash()
+  available = alpaca_cash - sum(algo['initial_capital'] for algo in running_algorithms)
+  ```
 
 #### 3.2 Orchestrator (orchestrator.py)
 **Purpose**: Run algorithms every minute during market hours
@@ -327,13 +363,29 @@ import alpaca_wrapper  # When built
    - Get required data from stocks.db
    - Get transaction history via `system_db_manager.get_transactions(algo_id)`
    - Run algorithm logic with `algorithm.on_data(bars, transaction_history)`
-   - Execute any trades via Alpaca
+   - Execute any trades via Alpaca using AlpacaWrapper
    - Record transactions via `system_db_manager.record_buy()` or `record_sell()`
 
 **Critical Timezone Issue**: Market hours check must use Eastern Time, not server timezone.
 
 **Dependencies**: Needs everything built so far.
-**Required Imports**: `system_db_manager`, `alpaca_wrapper`, algorithm modules
+**Required Imports**: 
+```python
+import system_db_manager
+from orchestra.alpaca_wrapper import AlpacaWrapper
+# Dynamic import of algorithm modules
+```
+
+**Trade Execution Pattern**:
+```python
+wrapper = AlpacaWrapper()
+if action == 'buy':
+    fill_price = wrapper.place_market_buy(ticker, shares)
+    system_db_manager.record_buy(algo_id, shares, fill_price)
+elif action == 'sell':
+    fill_price = wrapper.place_market_sell(ticker, shares)
+    system_db_manager.record_sell(algo_id, shares, fill_price)
+```
 
 ### Phase 4: Frontend
 
@@ -359,21 +411,23 @@ import alpaca_wrapper  # When built
 ## File Structure & Integration Map
 
 ```
-/autotrader/
-├── system_databse/                    # System database components
-│   ├── system.db                      # Main database file
-│   ├── create_system_db.py           # Database creation script
-│   ├── system_db_manager.py          # Core database functions
-│   └── card_calculations.py          # Frontend calculation engine
+/APAC/                                # Root directory
+├── .env                              # Environment variables (API keys, paper/real mode)
+├── system_databse/                   # System database components
+│   ├── system.db                     # Main database file
+│   ├── create_system_db.py          # Database creation script
+│   ├── system_db_manager.py         # Core database functions
+│   └── card_calculations.py         # Frontend calculation engine
 ├── database/                         # Market data (pre-built)
 │   ├── stocks.db                     # Pre-populated market data
-│   └── db_manager.py                 # Market data functions
+│   └── db_manager.py                # Market data functions
+├── orchestra/                        # Orchestration components
+│   └── alpaca_wrapper.py            # ✅ Alpaca API wrapper (COMPLETED)
 ├── algorithms/                       # Algorithm files (to be built)
 │   ├── sma_crossover.py
 │   └── [other_algorithm].py
 ├── api_server.py                     # Flask API (to be built)
 ├── orchestrator.py                   # Algorithm runner (to be built)
-├── alpaca_wrapper.py                 # Trading API (to be built)
 └── frontend/                         # Dashboard (to be built)
     ├── index.html
     ├── style.css
@@ -381,10 +435,10 @@ import alpaca_wrapper  # When built
 ```
 
 **Import Dependencies**:
-- **api_server.py** imports: `system_db_manager`, `card_calculations`, `alpaca_wrapper`
-- **orchestrator.py** imports: `system_db_manager`, `alpaca_wrapper`, algorithm modules
+- **api_server.py** imports: `system_db_manager`, `card_calculations`, `AlpacaWrapper`
+- **orchestrator.py** imports: `system_db_manager`, `AlpacaWrapper`, algorithm modules
 - **card_calculations.py** imports: `system_db_manager`
-- **Running location**: All Python files run from `/autotrader/` root directory
+- **Running location**: All Python files run from `/APAC/` root directory
 
 ## Critical Integration Points & Conflicts
 
@@ -482,6 +536,7 @@ def record_buy(algo_id, shares, price):
 
 ### In orchestrator.py
 ```python
+wrapper = AlpacaWrapper()
 for algorithm in running_algorithms:
     try:
         # Run algorithm logic
@@ -490,7 +545,7 @@ for algorithm in running_algorithms:
         if decision == 'buy':
             try:
                 # Attempt trade
-                fill_price = alpaca_wrapper.place_market_buy(ticker, shares)
+                fill_price = wrapper.place_market_buy(ticker, shares)
                 # Only record if trade succeeds
                 system_db_manager.record_buy(algo_id, shares, fill_price)
             except Exception as e:
@@ -502,7 +557,7 @@ for algorithm in running_algorithms:
         continue  # Skip to next algorithm, don't crash orchestrator
 ```
 
-### In alpaca_wrapper.py
+### In alpaca_wrapper.py ✅ **COMPLETED**
 ```python
 def place_market_buy(ticker, shares):
     try:
@@ -525,12 +580,13 @@ def get_algorithm(id):
 
 ## Testing Strategy
 
-### Phase 1 Testing
-- Create test algorithm instance with $10,000 allocation
-- Record sample buy transaction (50 shares at $100)
-- Verify position calculation shows 50 shares
-- Verify P&L calculation with mock current price
-- Test available cash calculation with multiple algorithms
+### Phase 1 Testing ✅ **COMPLETED**
+- Created test algorithm instance with $10,000 allocation
+- Recorded sample buy transaction (50 shares at $100)
+- Verified position calculation shows 50 shares
+- Verified P&L calculation with mock current price
+- Tested available cash calculation with multiple algorithms
+- **Alpaca Wrapper Testing**: Successfully bought and sold AAPL shares in paper account
 
 ### Phase 2 Testing
 - Run single algorithm in isolation
@@ -571,7 +627,10 @@ FROM transactions WHERE algorithm_id = ?
 
 ### Available Cash Calculation
 ```python
-alpaca_cash = alpaca_wrapper.get_account_cash()
+from orchestra.alpaca_wrapper import AlpacaWrapper
+
+wrapper = AlpacaWrapper()
+alpaca_cash = wrapper.get_account_cash()
 running_algos = system_db_manager.get_all_algorithms('running')
 allocated = sum(algo['initial_capital'] for algo in running_algos)
 available = alpaca_cash - allocated
@@ -602,7 +661,10 @@ available = alpaca_cash - allocated
    - Built `system_db_manager.py` with all core functions  
    - Built `card_calculations.py` with P&L calculation engine
    - Implemented proper UTC timezone handling
-2. **Day 3**: Alpaca wrapper and first algorithm
+2. **Day 3**: ✅ **PARTIALLY COMPLETED** - Alpaca wrapper done, first algorithm next
+   - Built `orchestra/alpaca_wrapper.py` with all trading functions
+   - Configured paper/real trading via .env variables
+   - Next: Build algorithm framework and sma_crossover.py
 3. **Day 4-5**: API server and orchestrator  
 4. **Day 6-7**: Frontend and testing
 5. **Day 8**: Polish, startup scripts, deployment
