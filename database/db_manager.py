@@ -6,7 +6,7 @@ import pytz
 def initialize_database():
     """
     Creates the stock_prices table if it doesn't exist and populates 
-    with minute timestamps from 2018-2030 between 9:30 AM - 4:00 PM EST.
+    with minute timestamps from 2018-2030 between 9:30 AM - 3:59 PM EST.
     All ticker columns start as NULL.
     Only needs to run once ever.
     """
@@ -41,12 +41,12 @@ def initialize_database():
     while current_date <= end_date:
         # Skip weekends
         if current_date.weekday() < 5:
-            # Market hours in EST
+            # Market hours in EST: 9:30 AM to 3:59 PM (last bar)
             market_open_est = eastern.localize(
                 current_date.replace(hour=9, minute=30, second=0, microsecond=0)
             )
             market_close_est = eastern.localize(
-                current_date.replace(hour=16, minute=0, second=0, microsecond=0)
+                current_date.replace(hour=15, minute=59, second=0, microsecond=0)
             )
 
             # Convert to UTC and walk minute-by-minute
@@ -114,7 +114,7 @@ def insert_minute_data(ticker, timestamp, ohlcv_dict):
     
     Args:
         ticker: 'NVDA'
-        timestamp: '2024-01-02T09:30:00'
+        timestamp: '2024-01-02T09:30:00Z'
         ohlcv_dict: {'o': 450.23, 'h': 451.00, 'l': 449.50, 'c': 450.75, 'v': 1000000}
     """
     add_ticker_if_missing(ticker)
@@ -329,3 +329,113 @@ def check_data_exists(ticker, start_date, end_date):
         raise
     finally:
         conn.close()
+
+
+def get_data_for_algorithm(ticker, requirement_type, **kwargs):
+    """
+    Single entry point for all algorithm data needs.
+    Automatically fetches missing data if needed.
+    
+    Args:
+        ticker: Stock symbol
+        requirement_type: Either 'last_n_bars' or 'time_range'
+        **kwargs: 
+            For 'last_n_bars': n=200, before_timestamp=None
+            For 'time_range': start='2024-01-02T09:30:00Z', end='2024-01-02T16:00:00Z'
+    
+    Returns:
+        List of bars with {timestamp, ohlcv} dicts
+    """
+    add_ticker_if_missing(ticker)
+    
+    if requirement_type == 'last_n_bars':
+        n = kwargs['n']
+        before_timestamp = kwargs.get('before_timestamp')
+        
+        if before_timestamp is None:
+            before_timestamp = datetime.now(pytz.UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        # First, try to get the data
+        conn = sqlite3.connect('database/stocks.db')
+        cursor = conn.cursor()
+        
+        query = f"""
+            SELECT minute_timestamp, {ticker}
+            FROM stock_prices 
+            WHERE minute_timestamp <= ?
+            AND {ticker} IS NOT NULL
+            ORDER BY minute_timestamp DESC
+            LIMIT ?
+        """
+        cursor.execute(query, (before_timestamp, n))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        # If we don't have enough data, fetch more
+        if len(rows) < n:
+            print(f"Found {len(rows)} bars but need {n} for {ticker}")
+            
+            # Calculate how far back we might need
+            # Add extra days for weekends/holidays
+            days_to_fetch = ((n - len(rows)) // 390) + 10
+            
+            # Import here to avoid circular dependency
+            from historical_pull import HistoricalFetcher
+            fetcher = HistoricalFetcher()
+            
+            # Parse the before_timestamp to get end date
+            end_date = datetime.strptime(before_timestamp[:10], '%Y-%m-%d')
+            start_date = end_date - timedelta(days=days_to_fetch)
+            
+            print(f"Auto-fetching {days_to_fetch} days of {ticker} data...")
+            result = fetcher.fetch_and_store(
+                ticker,
+                start_date.strftime('%Y-%m-%d'),
+                end_date.strftime('%Y-%m-%d')
+            )
+            print(f"Fetch result: {result}")
+            
+            # Try query again
+            conn = sqlite3.connect('database/stocks.db')
+            cursor = conn.cursor()
+            cursor.execute(query, (before_timestamp, n))
+            rows = cursor.fetchall()
+            conn.close()
+            
+            print(f"After fetching: found {len(rows)} bars")
+        
+        # Convert to standard format (chronological order)
+        results = []
+        for row in reversed(rows):  # Reverse to get oldest first
+            timestamp, json_data = row
+            ohlcv = json.loads(json_data)
+            results.append({"timestamp": timestamp, "ohlcv": ohlcv})
+        
+        return results
+        
+    elif requirement_type == 'time_range':
+        start = kwargs['start']
+        end = kwargs['end']
+        
+        # Check what we're missing
+        missing_ranges = check_data_exists(ticker, start, end)
+        
+        # Fetch any missing data
+        if missing_ranges:
+            from historical_pull import HistoricalFetcher
+            fetcher = HistoricalFetcher()
+            
+            for gap in missing_ranges:
+                # Convert to dates for the fetcher
+                start_date = gap['start'][:10]
+                end_date = gap['end'][:10]
+                
+                print(f"Auto-fetching {ticker} from {start_date} to {end_date}...")
+                result = fetcher.fetch_and_store(ticker, start_date, end_date)
+                print(f"Fetch result: {result}")
+        
+        # Now return the data
+        return get_historical_data(ticker, start, end)
+    
+    else:
+        raise ValueError(f"Unknown requirement type: {requirement_type}")

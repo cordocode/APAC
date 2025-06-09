@@ -2,6 +2,7 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from alpaca.data.live import StockDataStream
+from alpaca.data.enums import DataFeed # <-- CORRECTED IMPORT
 from datetime import datetime
 import pytz
 from db_manager import insert_minute_data
@@ -9,17 +10,23 @@ from db_manager import insert_minute_data
 # Load environment variables
 load_dotenv()
 
-# Get feed type from environment
-ALPACA_FEED = os.getenv('ALPACA_FEED', 'iex')
-
 class RealtimeStreamer:
     def __init__(self):
+        # Determine the correct feed enum from the environment variable string
+        feed_str = os.getenv('ALPACA_FEED', 'iex').upper()
+        try:
+            # Use getattr to safely get the enum member from DataFeed
+            feed_enum = getattr(DataFeed, feed_str)
+        except AttributeError:
+            print(f"Warning: Invalid ALPACA_FEED '{feed_str}'. Defaulting to IEX.")
+            feed_enum = DataFeed.IEX
+
         # Initialize websocket client
         self.stream = StockDataStream(
             api_key=os.getenv('ALPACA_API_KEY'),
             secret_key=os.getenv('ALPACA_SECRET'),
             raw_data=False,  # Get parsed objects, not raw JSON
-            feed=ALPACA_FEED  # Add this line
+            feed=feed_enum  # <-- USE THE CORRECT ENUM OBJECT
         )
         self.subscribed_symbols = set()
         self.utc = pytz.UTC
@@ -50,8 +57,6 @@ class RealtimeStreamer:
             if rows > 0:
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] "
                       f"Stored {data.symbol} bar: ${data.close} at {timestamp}")
-            else:
-                print(f"Warning: Failed to store {data.symbol} bar")
                 
         except Exception as e:
             print(f"Error handling bar data: {e}")
@@ -59,14 +64,10 @@ class RealtimeStreamer:
     def subscribe(self, symbols):
         """
         Subscribe to real-time bars for given symbols.
-        
-        Args:
-            symbols: List of ticker symbols ['NVDA', 'AAPL']
         """
         if isinstance(symbols, str):
             symbols = [symbols]
         
-        # Subscribe to bars (1-minute bars)
         self.stream.subscribe_bars(self.handle_bar, *symbols)
         self.subscribed_symbols.update(symbols)
         print(f"Subscribed to real-time bars for: {', '.join(symbols)}")
@@ -92,13 +93,8 @@ class RealtimeStreamer:
         except Exception as e:
             print(f"Stream error: {e}")
 
-
 # Test function
 if __name__ == "__main__":
     streamer = RealtimeStreamer()
-    
-    # Subscribe to a few symbols
     streamer.subscribe(['NVDA', 'AAPL', 'TSLA'])
-    
-    # Run the stream (blocks until stopped)
     streamer.run()
