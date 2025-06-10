@@ -5,7 +5,7 @@ from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from datetime import datetime
 import pytz
-from db_manager import insert_historical_data, check_data_exists
+from .db_manager import insert_historical_data, check_data_exists
 
 # Load environment variables
 load_dotenv()

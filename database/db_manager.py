@@ -380,7 +380,7 @@ def get_data_for_algorithm(ticker, requirement_type, **kwargs):
             days_to_fetch = ((n - len(rows)) // 390) + 10
             
             # Import here to avoid circular dependency
-            from historical_pull import HistoricalFetcher
+            from database.historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             
             # Parse the before_timestamp to get end date
@@ -422,7 +422,7 @@ def get_data_for_algorithm(ticker, requirement_type, **kwargs):
         
         # Fetch any missing data
         if missing_ranges:
-            from historical_pull import HistoricalFetcher
+            from database.historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             
             for gap in missing_ranges:
