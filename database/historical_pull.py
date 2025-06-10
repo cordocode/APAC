@@ -83,6 +83,11 @@ class HistoricalFetcher:
                 ticker_bars = list(bars[ticker])
                 if ticker_bars:
                     print(f"📥 Received {len(ticker_bars)} bars from Alpaca")
+
+                    self.stored_count = 0
+                    self.orphaned_bars = []
+                    for bar in ticker_bars:
+                        timestamp = bar.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
                     
                     for bar in ticker_bars:
                         # Convert Alpaca timestamp to our UTC format
@@ -100,6 +105,9 @@ class HistoricalFetcher:
                         })
                     
                     # Store in database
+                    import sys
+                    from pathlib import Path
+                    sys.path.append(str(Path(__file__).parent))
                     from db_manager import insert_historical_data
                     rows_updated = insert_historical_data(ticker, data_array)
                     

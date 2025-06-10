@@ -299,7 +299,7 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
             ).strftime('%Y-%m-%d')
             
             # Import and use historical fetcher
-            from historical_pull import HistoricalFetcher
+            from database.historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             
             print(f"🔄 Auto-fetching {ticker} from {fetch_start_date} to {fetch_end_date}")
@@ -367,7 +367,7 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
             start_date = start[:10]
             end_date = end[:10]
             
-            from historical_pull import HistoricalFetcher
+            from database.historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             
             print(f"🔄 Fetching missing {ticker} data from {start_date} to {end_date}")
