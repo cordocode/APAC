@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import pytz
 from typing import List, Dict
+import requests
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -56,41 +57,36 @@ class MarketCalendar:
 #==============================================================================
 
     def get_market_schedule(self, start_date: str, end_date: str) -> List[Dict]:
-        """
-        Get market schedule from Alpaca Calendar API with caching
-        
-        Args:
-            start_date: 'YYYY-MM-DD' format
-            end_date: 'YYYY-MM-DD' format
-            
-        Returns:
-            List of market days with open/close times
-        """
+        """Get market schedule - using direct REST API since SDK has issues"""
         cache_key = f"{start_date}_{end_date}"
         
         if cache_key not in self.calendar_cache:
             try:
-                # Convert string dates to datetime objects
-                start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
-                end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+                # Direct API call
+                headers = {
+                    'APCA-API-KEY-ID': os.getenv('ALPACA_API_KEY'),
+                    'APCA-API-SECRET-KEY': os.getenv('ALPACA_SECRET')
+                }
                 
-                # Get calendar from Alpaca
-                calendar_response = self.client.get_calendar(start=start_dt, end=end_dt)
+                response = requests.get(
+                    'https://paper-api.alpaca.markets/v2/calendar',
+                    params={'start': start_date, 'end': end_date},
+                    headers=headers
+                )
                 
-                # Convert to our format
                 calendar_data = []
-                for day in calendar_response:
+                for day in response.json():
                     calendar_data.append({
-                        'date': day.date.strftime('%Y-%m-%d'),
-                        'open': day.open.strftime('%H:%M'),
-                        'close': day.close.strftime('%H:%M')
+                        'date': day['date'],
+                        'open': day['open'],
+                        'close': day['close']
                     })
                 
                 self.calendar_cache[cache_key] = calendar_data
-                print(f"📅 Cached calendar data: {len(calendar_data)} trading days from {start_date} to {end_date}")
+                print(f"📅 Got {len(calendar_data)} trading days")
                 
             except Exception as e:
-                print(f"❌ Error fetching calendar data: {e}")
+                print(f"❌ Error: {e}")
                 raise
         
         return self.calendar_cache[cache_key]
@@ -107,7 +103,6 @@ class MarketCalendar:
     def generate_all_market_minutes(self, start_year: int = 2018, end_year: int = 2028) -> List[str]:
         """
         Generate every valid market minute from start_year to end_year using Alpaca Calendar.
-        This is the core function for building the market-hours-only database.
         
         Args:
             start_year: Starting year (default 2018)
@@ -128,20 +123,28 @@ class MarketCalendar:
             raise ValueError(f"No market schedule data received for {start_date} to {end_date}")
         
         market_minutes = []
+        total_days = len(market_schedule)
+        days_processed = 0
+        
+        print(f"📅 Processing {total_days:,} trading days...")
         
         for day_info in market_schedule:
-            date_str = day_info['date']       # '2025-06-20'
-            open_time = day_info['open']      # '09:30' 
-            close_time = day_info['close']    # '16:00' or '13:00' for early close
+            date_str = day_info['date']
+            open_time = day_info['open']
+            close_time = day_info['close']
             
             # Generate every minute for this trading day
             day_minutes = self._generate_minutes_for_trading_day(date_str, open_time, close_time)
             market_minutes.extend(day_minutes)
+            
+            days_processed += 1
+            
+            # Simple progress every 500 days
+            if days_processed % 500 == 0:
+                print(f"  Processed {days_processed}/{total_days} days...")
         
         print(f"✅ Generated {len(market_minutes):,} total market minutes")
-        print(f"📅 First minute: {market_minutes[0]}")
-        print(f"📅 Last minute: {market_minutes[-1]}")
-        print(f"📊 Trading days: {len(market_schedule):,}")
+        print(f"📅 Date range: {market_minutes[0]} to {market_minutes[-1]}")
         
         return market_minutes
 
