@@ -1,15 +1,29 @@
+#!/usr/bin/env python3
+"""
+Database Manager - Clean Production Version
+Handles all stock price database operations with market-hours-only structure
+"""
+
 import sqlite3
 import json
 from datetime import datetime, timedelta
 import pytz
+from typing import List, Dict, Optional
+
+#==============================================================================
+# DATABASE INITIALIZATION
+#==============================================================================
 
 def initialize_database():
     """
-    Creates the stock_prices table if it doesn't exist and populates 
-    with minute timestamps from 2018-2030 between 9:30 AM - 3:59 PM EST.
-    All ticker columns start as NULL.
-    Only needs to run once ever.
+    Creates the market-hours-only stock_prices table using Alpaca Calendar API.
+    Only contains valid market minutes from 2018-2028, no weekends/holidays.
     """
+    print("🔄 Initializing database with market hours only...")
+    
+    # Import calendar manager
+    from calendar_manager import MarketCalendar
+    
     conn = sqlite3.connect('database/stocks.db')
     cursor = conn.cursor()
     
@@ -23,65 +37,43 @@ def initialize_database():
     # Check if table is already populated
     cursor.execute('SELECT COUNT(*) FROM stock_prices')
     if cursor.fetchone()[0] > 0:
-        print("Database already initialized")
+        print("✅ Database already initialized")
         conn.close()
         return
-
-    import pytz
-    eastern = pytz.timezone('US/Eastern')
-    utc = pytz.UTC
     
-    start_year = 2018
-    end_year = 2030
-    timestamps = []
+    # Generate all valid market minutes using Alpaca Calendar
+    calendar = MarketCalendar()
+    market_minutes = calendar.generate_all_market_minutes(2018, 2028)
     
-    current_date = datetime(start_year, 1, 2)  # first trading day in 2018
-    end_date = datetime(end_year, 12, 31)
-
-    while current_date <= end_date:
-        # Skip weekends
-        if current_date.weekday() < 5:
-            # Market hours in EST: 9:30 AM to 3:59 PM (last bar)
-            market_open_est = eastern.localize(
-                current_date.replace(hour=9, minute=30, second=0, microsecond=0)
-            )
-            market_close_est = eastern.localize(
-                current_date.replace(hour=15, minute=59, second=0, microsecond=0)
-            )
-
-            # Convert to UTC and walk minute-by-minute
-            current_time = market_open_est.astimezone(utc)
-            market_close_utc = market_close_est.astimezone(utc)
-            while current_time <= market_close_utc:
-                # Store key as canonical UTC with trailing Z
-                timestamps.append((current_time.strftime('%Y-%m-%dT%H:%M:%SZ'),))
-                current_time += timedelta(minutes=1)
-        
-        current_date += timedelta(days=1)
+    # Insert all valid market minutes
+    print(f"📥 Inserting {len(market_minutes):,} market minutes into database...")
+    cursor.executemany(
+        'INSERT INTO stock_prices (minute_timestamp) VALUES (?)',
+        [(minute,) for minute in market_minutes]
+    )
     
-    cursor.executemany('INSERT INTO stock_prices (minute_timestamp) VALUES (?)', timestamps)
     conn.commit()
     conn.close()
-    print(f"Inserted {len(timestamps)} rows.")
+    
+    print(f"✅ Database initialized with {len(market_minutes):,} market-only timestamps")
+    print("🎯 Every row is guaranteed to be a valid market minute")
 
+#==============================================================================
+# TICKER MANAGEMENT
+#==============================================================================
 
-def add_ticker_if_missing(ticker):
+def add_ticker_if_missing(ticker: str):
     """
     Checks if ticker column exists in table and adds it if missing.
     Called automatically by other functions before any ticker operation.
     
     Args:
-        ticker (str): Stock ticker symbol (e.g., 'NVDA', 'AAPL')
-    
-    Returns:
-        None - just ensures column exists
+        ticker: Stock ticker symbol (e.g., 'NVDA', 'AAPL')
     """
     # Sanitize ticker to prevent SQL injection
-    # Only allow alphanumeric characters and underscores
     if not ticker.replace('_', '').isalnum():
         raise ValueError(f"Invalid ticker symbol: {ticker}")
     
-    # Connect to database
     conn = sqlite3.connect('database/stocks.db')
     cursor = conn.cursor()
     
@@ -91,7 +83,6 @@ def add_ticker_if_missing(ticker):
         columns = cursor.fetchall()
         
         # Check if ticker column already exists
-        # PRAGMA returns: (cid, name, type, notnull, dflt_value, pk)
         column_names = [column[1] for column in columns]
         
         if ticker not in column_names:
@@ -99,16 +90,19 @@ def add_ticker_if_missing(ticker):
             alter_query = f"ALTER TABLE stock_prices ADD COLUMN {ticker} TEXT"
             cursor.execute(alter_query)
             conn.commit()
-            print(f"Added column for ticker: {ticker}")
-        # If column exists, do nothing (silent success)
+            print(f"✅ Added column for ticker: {ticker}")
             
     except Exception as e:
-        print(f"Error in add_ticker_if_missing: {e}")
+        print(f"❌ Error in add_ticker_if_missing: {e}")
         raise
     finally:
         conn.close()
 
-def insert_minute_data(ticker, timestamp, ohlcv_dict):
+#==============================================================================
+# DATA WRITING FUNCTIONS
+#==============================================================================
+
+def insert_minute_data(ticker: str, timestamp: str, ohlcv_dict: Dict):
     """
     Insert a single minute of data. Works for both historical and realtime.
     
@@ -134,25 +128,20 @@ def insert_minute_data(ticker, timestamp, ohlcv_dict):
         return cursor.rowcount
         
     except Exception as e:
-        print(f"Error inserting data: {e}")
+        print(f"❌ Error inserting data: {e}")
         conn.rollback()
         raise
     finally:
         conn.close()
 
-
-def get_historical_data(ticker, start_date, end_date):
+def insert_historical_data(ticker: str, data_array: List[Dict]):
     """
-    Fetches all non-NULL data in date range from our database.
-    Returns array of {timestamp, ohlcv} objects.
+    Bulk insert for efficiency with historical data.
+    Takes array of {timestamp, ohlcv} objects and updates rows with JSON strings.
     
     Args:
         ticker: Stock symbol (e.g., 'NVDA')
-        start_date: Start timestamp (e.g., '2024-01-02T14:30:00Z')
-        end_date: End timestamp (e.g., '2024-01-02T21:00:00Z')
-    
-    Returns:
-        List of dicts: [{"timestamp": "...", "ohlcv": {...}}, ...]
+        data_array: List of dicts with 'timestamp' and 'ohlcv' keys
     """
     add_ticker_if_missing(ticker)
     
@@ -160,38 +149,40 @@ def get_historical_data(ticker, start_date, end_date):
     cursor = conn.cursor()
     
     try:
-        # Get all non-NULL data in the range
+        # Prepare data for bulk update
+        update_data = []
+        for item in data_array:
+            timestamp = item['timestamp']
+            ohlcv_json = json.dumps(item['ohlcv'])
+            update_data.append((ohlcv_json, timestamp))
+        
+        # Bulk update - only update NULL values to avoid overwriting existing data
         query = f"""
-            SELECT minute_timestamp, {ticker}
-            FROM stock_prices 
-            WHERE minute_timestamp >= ? 
-            AND minute_timestamp <= ?
-            AND {ticker} IS NOT NULL
-            ORDER BY minute_timestamp
+            UPDATE stock_prices 
+            SET {ticker} = ? 
+            WHERE minute_timestamp = ? 
+            AND {ticker} IS NULL
         """
+        cursor.executemany(query, update_data)
         
-        cursor.execute(query, (start_date, end_date))
+        rows_updated = cursor.rowcount
+        conn.commit()
         
-        # Convert to list of dicts
-        results = []
-        for row in cursor.fetchall():
-            timestamp, json_data = row
-            ohlcv = json.loads(json_data)  # Parse JSON string back to dict
-            results.append({
-                "timestamp": timestamp,
-                "ohlcv": ohlcv
-            })
-        
-        return results
+        print(f"📥 Bulk updated {rows_updated} rows for {ticker}")
+        return rows_updated
         
     except Exception as e:
-        print(f"Error getting historical data: {e}")
+        print(f"❌ Error in bulk insert: {e}")
+        conn.rollback()
         raise
     finally:
         conn.close()
 
+#==============================================================================
+# DATA READING FUNCTIONS
+#==============================================================================
 
-def get_latest_price(ticker):
+def get_latest_price(ticker: str) -> Optional[Dict]:
     """
     Returns most recent non-NULL entry for ticker.
     
@@ -230,121 +221,29 @@ def get_latest_price(ticker):
             return None
             
     except Exception as e:
-        print(f"Error getting latest price: {e}")
+        print(f"❌ Error getting latest price: {e}")
         raise
     finally:
         conn.close()
 
+#==============================================================================
+# ALGORITHM DATA INTERFACE
+#==============================================================================
 
-def insert_historical_data(ticker, data_array):
+def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List[Dict]:
     """
-    Bulk insert for efficiency with historical data.
-    Takes array of {timestamp, ohlcv} objects and updates rows with JSON strings.
-    
-    Args:
-        ticker: Stock symbol (e.g., 'NVDA')
-        data_array: List of dicts with 'timestamp' and 'ohlcv' keys
-    
-    Returns:
-        int: Number of rows updated
-    """
-    add_ticker_if_missing(ticker)
-    
-    conn = sqlite3.connect('database/stocks.db')
-    cursor = conn.cursor()
-    
-    try:
-        # Prepare data for bulk update
-        update_data = []
-        for item in data_array:
-            timestamp = item['timestamp']
-            ohlcv_json = json.dumps(item['ohlcv'])
-            update_data.append((ohlcv_json, timestamp))
-        
-        # Bulk update
-        query = (
-        f"UPDATE stock_prices "
-        f"SET {ticker} = ? "
-        f"WHERE minute_timestamp = ? "
-        f"  AND {ticker} IS NULL"
-        )
-        cursor.executemany(query, update_data)
-        
-        rows_updated = cursor.rowcount
-        conn.commit()
-        
-        print(f"Bulk updated {rows_updated} rows for {ticker}")
-        return rows_updated
-        
-    except Exception as e:
-        print(f"Error in bulk insert: {e}")
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-def check_data_exists(ticker, start_date, end_date):
-    """
-    Check if data exists for a ticker in the given date range.
-    Returns list of date ranges where data is missing (NULL).
-    
-    Args:
-        ticker: Stock symbol (e.g., 'NVDA')
-        start_date: Start timestamp (e.g., '2024-01-02T14:30:00Z')
-        end_date: End timestamp (e.g., '2024-01-02T21:00:00Z')
-    
-    Returns:
-        Empty list if all data exists, or
-        List with missing range: [{"start": start_date, "end": end_date}]
-    """
-    add_ticker_if_missing(ticker)
-    
-    conn = sqlite3.connect('database/stocks.db')
-    cursor = conn.cursor()
-    
-    try:
-        # Count NULL values in the date range
-        query = f"""
-            SELECT COUNT(*) 
-            FROM stock_prices 
-            WHERE minute_timestamp >= ? 
-            AND minute_timestamp <= ?
-            AND {ticker} IS NULL
-        """
-        
-        cursor.execute(query, (start_date, end_date))
-        null_count = cursor.fetchone()[0]
-        
-        if null_count == 0:
-            # All data exists
-            return []
-        else:
-            # Some or all data is missing
-            # For simplicity, return the full range as missing
-            # (In a more complex implementation, you might return specific gaps)
-            return [{"start": start_date, "end": end_date}]
-            
-    except Exception as e:
-        print(f"Error checking data existence: {e}")
-        raise
-    finally:
-        conn.close()
-
-
-def get_data_for_algorithm(ticker, requirement_type, **kwargs):
-    """
-    Single entry point for all algorithm data needs.
-    Automatically fetches missing data if needed.
+    Primary interface for algorithm data needs.
+    Every timestamp in database is guaranteed to be a valid market minute.
     
     Args:
         ticker: Stock symbol
         requirement_type: Either 'last_n_bars' or 'time_range'
         **kwargs: 
             For 'last_n_bars': n=200, before_timestamp=None
-            For 'time_range': start='2024-01-02T09:30:00Z', end='2024-01-02T16:00:00Z'
+            For 'time_range': start='2024-01-02T09:30:00Z', end='2024-01-02T20:59:00Z'
     
     Returns:
-        List of bars with {timestamp, ohlcv} dicts
+        List of bars with {timestamp, ohlcv} dicts in chronological order
     """
     add_ticker_if_missing(ticker)
     
@@ -355,7 +254,9 @@ def get_data_for_algorithm(ticker, requirement_type, **kwargs):
         if before_timestamp is None:
             before_timestamp = datetime.now(pytz.UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
         
-        # First, try to get the data
+        print(f"🔍 Getting last {n} bars for {ticker} before {before_timestamp}")
+        
+        # Step 1: Try to get data from database
         conn = sqlite3.connect('database/stocks.db')
         cursor = conn.cursor()
         
@@ -371,45 +272,59 @@ def get_data_for_algorithm(ticker, requirement_type, **kwargs):
         rows = cursor.fetchall()
         conn.close()
         
-        # If we don't have enough data, fetch more
+        print(f"📊 Found {len(rows)} existing bars in database")
+        
+        # Step 2: If missing data, fetch more intelligently
         if len(rows) < n:
-            print(f"Found {len(rows)} bars but need {n} for {ticker}")
+            missing_count = n - len(rows)
+            print(f"📥 Need {missing_count} more bars, fetching from Alpaca...")
             
-            # Calculate how far back we might need
-            # Add extra days for weekends/holidays
-            days_to_fetch = ((n - len(rows)) // 390) + 10
+            # Calculate fetch range
+            if rows:
+                # Start from oldest existing data
+                oldest_existing = rows[-1][0]  # oldest timestamp in results
+                fetch_end_date = oldest_existing[:10]
+            else:
+                # No existing data, start from before_timestamp
+                fetch_end_date = before_timestamp[:10]
             
-            # Import here to avoid circular dependency
-            from database.historical_pull import HistoricalFetcher
+            # Estimate how many days back to fetch (conservative approach)
+            # ~390 bars per trading day, but account for weekends/holidays
+            trading_days_needed = (missing_count // 300) + 3  # Conservative estimate
+            calendar_days_back = trading_days_needed * 1.5  # Account for weekends/holidays
+            
+            fetch_start_date = (
+                datetime.strptime(fetch_end_date, '%Y-%m-%d') - 
+                timedelta(days=int(calendar_days_back))
+            ).strftime('%Y-%m-%d')
+            
+            # Import and use historical fetcher
+            from historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             
-            # Parse the before_timestamp to get end date
-            end_date = datetime.strptime(before_timestamp[:10], '%Y-%m-%d')
-            start_date = end_date - timedelta(days=days_to_fetch)
+            print(f"🔄 Auto-fetching {ticker} from {fetch_start_date} to {fetch_end_date}")
+            result = fetcher.fetch_and_store(ticker, fetch_start_date, fetch_end_date)
+            print(f"✅ Fetch result: {result}")
             
-            print(f"Auto-fetching {days_to_fetch} days of {ticker} data...")
-            result = fetcher.fetch_and_store(
-                ticker,
-                start_date.strftime('%Y-%m-%d'),
-                end_date.strftime('%Y-%m-%d')
-            )
-            print(f"Fetch result: {result}")
-            
-            # Try query again
+            # Step 3: Re-query after fetching
             conn = sqlite3.connect('database/stocks.db')
             cursor = conn.cursor()
             cursor.execute(query, (before_timestamp, n))
             rows = cursor.fetchall()
             conn.close()
             
-            print(f"After fetching: found {len(rows)} bars")
+            print(f"📈 After fetching: found {len(rows)} total bars")
         
-        # Convert to standard format (chronological order)
+        # Step 4: Convert to chronological order and return
         results = []
         for row in reversed(rows):  # Reverse to get oldest first
             timestamp, json_data = row
             ohlcv = json.loads(json_data)
             results.append({"timestamp": timestamp, "ohlcv": ohlcv})
+        
+        if len(results) < n:
+            print(f"⚠️  Warning: Algorithm requested {n} bars but only {len(results)} available")
+            print(f"⚠️  This may indicate new ticker or limited historical data")
         
         return results
         
@@ -417,25 +332,117 @@ def get_data_for_algorithm(ticker, requirement_type, **kwargs):
         start = kwargs['start']
         end = kwargs['end']
         
-        # Check what we're missing
-        missing_ranges = check_data_exists(ticker, start, end)
+        print(f"🔍 Getting time range data for {ticker}: {start} to {end}")
         
-        # Fetch any missing data
-        if missing_ranges:
-            from database.historical_pull import HistoricalFetcher
+        # Simple range query - non-market times don't exist in DB
+        conn = sqlite3.connect('database/stocks.db')
+        cursor = conn.cursor()
+        
+        query = f"""
+            SELECT minute_timestamp, {ticker}
+            FROM stock_prices 
+            WHERE minute_timestamp >= ?
+            AND minute_timestamp <= ?
+            AND {ticker} IS NOT NULL
+            ORDER BY minute_timestamp
+        """
+        cursor.execute(query, (start, end))
+        rows = cursor.fetchall()
+        
+        # Check if we need to fetch missing data
+        expected_query = """
+            SELECT COUNT(*) 
+            FROM stock_prices 
+            WHERE minute_timestamp >= ? 
+            AND minute_timestamp <= ?
+        """
+        cursor.execute(expected_query, (start, end))
+        expected_count = cursor.fetchone()[0]
+        conn.close()
+        
+        if len(rows) < expected_count:
+            print(f"📥 Missing data: have {len(rows)}, expected {expected_count}")
+            
+            # Fetch missing data for the date range
+            start_date = start[:10]
+            end_date = end[:10]
+            
+            from historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             
-            for gap in missing_ranges:
-                # Convert to dates for the fetcher
-                start_date = gap['start'][:10]
-                end_date = gap['end'][:10]
-                
-                print(f"Auto-fetching {ticker} from {start_date} to {end_date}...")
-                result = fetcher.fetch_and_store(ticker, start_date, end_date)
-                print(f"Fetch result: {result}")
+            print(f"🔄 Fetching missing {ticker} data from {start_date} to {end_date}")
+            result = fetcher.fetch_and_store(ticker, start_date, end_date)
+            print(f"✅ Fetch result: {result}")
+            
+            # Re-query after fetch
+            conn = sqlite3.connect('database/stocks.db')
+            cursor = conn.cursor()
+            cursor.execute(query, (start, end))
+            rows = cursor.fetchall()
+            conn.close()
         
-        # Now return the data
-        return get_historical_data(ticker, start, end)
+        # Convert to standard format
+        results = []
+        for row in rows:
+            timestamp, json_data = row
+            ohlcv = json.loads(json_data)
+            results.append({"timestamp": timestamp, "ohlcv": ohlcv})
+        
+        print(f"📊 Returning {len(results)} bars for time range")
+        return results
     
     else:
         raise ValueError(f"Unknown requirement type: {requirement_type}")
+
+#==============================================================================
+# DATABASE UTILITIES
+#==============================================================================
+
+def get_database_stats() -> Dict:
+    """
+    Get statistics about the database content.
+    Useful for monitoring and debugging.
+    
+    Returns:
+        Dict with database statistics
+    """
+    conn = sqlite3.connect('database/stocks.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Get total timestamps
+        cursor.execute("SELECT COUNT(*) FROM stock_prices")
+        total_timestamps = cursor.fetchone()[0]
+        
+        # Get table schema to find all ticker columns
+        cursor.execute("PRAGMA table_info(stock_prices)")
+        columns = cursor.fetchall()
+        ticker_columns = [col[1] for col in columns if col[1] != 'minute_timestamp']
+        
+        # Get data completion for each ticker
+        ticker_stats = {}
+        for ticker in ticker_columns:
+            cursor.execute(f"SELECT COUNT(*) FROM stock_prices WHERE {ticker} IS NOT NULL")
+            data_count = cursor.fetchone()[0]
+            completion_rate = (data_count / total_timestamps * 100) if total_timestamps > 0 else 0
+            ticker_stats[ticker] = {
+                "data_points": data_count,
+                "completion_rate": round(completion_rate, 2)
+            }
+        
+        # Get date range
+        cursor.execute("SELECT MIN(minute_timestamp), MAX(minute_timestamp) FROM stock_prices")
+        min_date, max_date = cursor.fetchone()
+        
+        return {
+            "total_timestamps": total_timestamps,
+            "date_range": {"start": min_date, "end": max_date},
+            "ticker_count": len(ticker_columns),
+            "tickers": ticker_stats
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting database stats: {e}")
+        raise
+    finally:
+        conn.close()

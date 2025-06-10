@@ -1,105 +1,85 @@
 #!/usr/bin/env python3
 """
-Test data freshness during market hours
-Compare historical pull vs what's in database vs current time
+Test fetching fresh data during market hours
+This will trigger auto-fetch to get today's data from Alpaca
 """
 
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
-import sqlite3
 
 sys.path.append(str(Path(__file__).parent.parent))
 
 from database import db_manager
 
 
-def check_data_freshness():
-    """Check how fresh our data is during market hours"""
+def test_fresh_data_request():
+    """Request last 50 bars - this should fetch today's fresh data"""
     
     ticker = 'NVDA'
     current_time = datetime.now(timezone.utc)
     current_time_str = current_time.strftime('%Y-%m-%dT%H:%M:%SZ')
     
     print("=" * 60)
-    print("MARKET OPEN DATA FRESHNESS CHECK")
+    print("FRESH DATA FETCH TEST (Market Open)")
     print("=" * 60)
     print(f"Current UTC time: {current_time_str}")
-    print(f"Current EST time: {current_time.strftime('%Y-%m-%d %H:%M:%S')} (subtract 5 hours)")
+    print(f"Market opened at: 2025-06-10T13:30:00Z (9:30 AM EST)")
     print(f"Ticker: {ticker}")
-    print("-" * 60)
+    print("=" * 60)
     
-    # Get latest price from database
-    latest = db_manager.get_latest_price(ticker)
+    print("\nRequesting last 50 bars (will auto-fetch today's data)...")
     
-    if latest:
-        print(f"\nLatest bar in database:")
-        print(f"  Timestamp: {latest['timestamp']}")
-        print(f"  Close: ${latest['ohlcv']['c']:.2f}")
-        
-        # Calculate gap
-        latest_time = datetime.strptime(latest['timestamp'], '%Y-%m-%dT%H:%M:%SZ')
-        gap = current_time - latest_time
-        
-        print(f"\nData freshness gap: {gap}")
-        
-        # Determine if this is expected
-        gap_minutes = gap.total_seconds() / 60
-        if gap_minutes < 2:
-            print("✅ Data is VERY fresh! (< 2 minutes old)")
-        elif gap_minutes < 15:
-            print("⚠️  Data has minor delay (expected for free tier)")
-        else:
-            print(f"❌ Data is {gap_minutes:.0f} minutes old!")
-            
-    # Now check what get_data_for_algorithm would return
-    print("\n" + "-" * 60)
-    print("Testing algorithm data request (last 10 bars):")
-    
+    # This should trigger auto-fetch for today's data
     bars = db_manager.get_data_for_algorithm(
         ticker=ticker,
         requirement_type='last_n_bars',
-        n=10,
+        n=50,
         before_timestamp=current_time_str
     )
     
+    print(f"\nReceived {len(bars)} bars")
+    
     if bars:
-        print(f"\nReceived {len(bars)} bars")
-        print("\nLast 3 bars:")
-        for bar in bars[-3:]:
-            print(f"  {bar['timestamp']} - C: ${bar['ohlcv']['c']:.2f} V: {bar['ohlcv']['v']}")
+        # Show the most recent bars
+        print("\nLast 5 bars:")
+        for i, bar in enumerate(bars[-5:], len(bars)-4):
+            print(f"  [{i}] {bar['timestamp']} - O:{bar['ohlcv']['o']:.2f} "
+                  f"H:{bar['ohlcv']['h']:.2f} L:{bar['ohlcv']['l']:.2f} "
+                  f"C:{bar['ohlcv']['c']:.2f} V:{bar['ohlcv']['v']}")
+        
+        # Check freshness of the newest data
+        newest_bar_time = datetime.strptime(bars[-1]['timestamp'], '%Y-%m-%dT%H:%M:%SZ')
+        newest_bar_time = newest_bar_time.replace(tzinfo=timezone.utc)
+        
+        gap = current_time - newest_bar_time
+        gap_minutes = gap.total_seconds() / 60
+        
+        print(f"\n" + "="*60)
+        print("DATA FRESHNESS ANALYSIS:")
+        print("="*60)
+        print(f"Current time:      {current_time_str}")
+        print(f"Newest bar:        {bars[-1]['timestamp']}")
+        print(f"Gap:               {gap} ({gap_minutes:.1f} minutes)")
+        
+        if gap_minutes < 2:
+            print("\n✅ Data is REAL-TIME! (< 2 minute delay)")
+        elif gap_minutes < 15:
+            print(f"\n⚠️  Data has {gap_minutes:.0f} minute delay")
+            print("This might be the free tier delay")
+        else:
+            print(f"\n❌ Data is {gap_minutes:.0f} minutes old!")
             
-    # Check in SQLite directly
-    print("\n" + "-" * 60)
-    print("Direct SQLite verification:")
-    print("Run this in SQLite to verify:")
-    print(f"""
-sqlite3 database/stocks.db "
-SELECT minute_timestamp, NVDA 
-FROM stock_prices 
-WHERE NVDA IS NOT NULL 
-ORDER BY minute_timestamp DESC 
-LIMIT 5;"
-""")
-
-
-def check_websocket_readiness():
-    """Check if we should expect websocket data"""
-    
-    print("\n" + "=" * 60)
-    print("WEBSOCKET READINESS CHECK")
-    print("=" * 60)
-    
-    print("\nTo test WebSocket real-time data:")
-    print("1. Run: python database/realtime_pull.py")
-    print("2. It will subscribe to NVDA and show live bars")
-    print("3. Compare timestamps with historical data")
-    print("\nExpected behavior:")
-    print("- Free tier: Might have 15-minute delay")
-    print("- WebSocket bars should arrive ~2 seconds after each minute")
-    print("- Each bar represents the PREVIOUS minute's data")
+        # Check if we got today's market open data
+        market_open_today = "2025-06-10T13:30:00Z"
+        has_today_open = any(bar['timestamp'] >= market_open_today for bar in bars)
+        
+        if has_today_open:
+            today_bars = [bar for bar in bars if bar['timestamp'] >= market_open_today]
+            print(f"\n✅ Successfully fetched {len(today_bars)} bars from today's session")
+        else:
+            print("\n❌ No data from today's session found!")
 
 
 if __name__ == "__main__":
-    check_data_freshness()
-    check_websocket_readiness()
+    test_fresh_data_request()
