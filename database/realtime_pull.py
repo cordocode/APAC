@@ -77,7 +77,7 @@ class RealtimeStreamer:
             }
             
             # Store in database
-            from db_manager import insert_minute_data
+            from database.db_manager import insert_minute_data
             rows_updated = insert_minute_data(data.symbol, timestamp, ohlcv)
             
             if rows_updated > 0:

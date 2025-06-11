@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
 Orchestrator - Core execution engine for AutoTrader
-Manages algorithm execution and trading during market hours
+NOW WITH INTEGRATED API SERVER
+Manages algorithm execution, trading, WebSocket streams, AND API endpoints
 """
 
 import sys
 import time
 import importlib
 import traceback
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 import pytz
@@ -21,6 +23,7 @@ from system_databse.system_db_manager import (
     record_buy, record_sell, stop_algorithm
 )
 from orchestra.alpaca_wrapper import AlpacaWrapper
+from orchestra.websocket_manager import WebSocketManager
 from database.calendar_manager import MarketCalendar
 
 class Orchestrator:
@@ -29,10 +32,12 @@ class Orchestrator:
     def __init__(self):
         self.calendar = MarketCalendar()
         self.alpaca = AlpacaWrapper()
+        self.ws_manager = WebSocketManager()  # Initialize WebSocket Manager
         self.loaded_modules = {}  # Cache for algorithm modules
         self.failed_algorithms = set()  # Track failed algorithm IDs
         self.running = True
         self.last_execution = None
+        self.api_thread = None  # Thread for API server
         print("🚀 Orchestrator initialized")
         print(f"📅 Current time: {datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}")
         
@@ -188,12 +193,74 @@ class Orchestrator:
         print(f"\n✅ Execution complete: {success_count}/{len(running_algos)} successful")
         self.last_execution = datetime.now(pytz.UTC)
     
+    # =========================================================================
+    # API SERVER INTEGRATION
+    # =========================================================================
+    
+    def _start_api_server(self):
+        """Start the API server in a separate thread"""
+        try:
+            # Import and run the API server with our WebSocket manager
+            from orchestra.api_server import run_api_server
+            
+            print("\n🌐 Starting integrated API server...")
+            
+            # Run API server in a daemon thread
+            self.api_thread = threading.Thread(
+                target=run_api_server,
+                args=(self.ws_manager,),  # Pass WebSocket manager
+                kwargs={'port': 5001},
+                name="APIServer",
+                daemon=True  # Dies when main program exits
+            )
+            self.api_thread.start()
+            
+            # Give it a moment to start
+            time.sleep(2)
+            print("✅ API server started on port 5001")
+            
+        except Exception as e:
+            print(f"❌ Failed to start API server: {e}")
+            traceback.print_exc()
+    
+    # =========================================================================
+    # MAIN RUN LOOP
+    # =========================================================================
+    
     def run(self):
         """Main execution loop - runs forever"""
         print("\n🚀 Starting Orchestrator main loop")
         print("⏰ Will execute algorithms at :02 of each minute during market hours")
         print("🌙 Will sleep until market open when closed")
         print("Press Ctrl+C to stop\n")
+        
+        # =====================================================================
+        # START API SERVER FIRST
+        # =====================================================================
+        self._start_api_server()
+        
+        # =====================================================================
+        # INITIALIZE WEBSOCKET MANAGER
+        # =====================================================================
+        print("\n📡 Initializing WebSocket subscriptions...")
+        self.ws_manager.initialize_from_db()
+        self.ws_manager.start()
+        print("✅ Real-time data stream active")
+        
+        # Show WebSocket status
+        self.ws_manager.print_status()
+        
+        # =====================================================================
+        # SHOW SYSTEM STATUS
+        # =====================================================================
+        print("\n" + "="*60)
+        print("🎯 AUTOTRADER SYSTEM FULLY OPERATIONAL")
+        print("="*60)
+        print("✅ Orchestrator: Running")
+        print("✅ API Server: http://localhost:5001")
+        print("✅ WebSocket Stream: Active")
+        print("✅ Algorithm Execution: Every minute at :02")
+        print("="*60 + "\n")
         
         last_market_state = None
         
@@ -233,7 +300,22 @@ class Orchestrator:
             print(f"\n❌ Orchestrator crashed: {e}")
             traceback.print_exc()
         finally:
-            print("👋 Orchestrator shutdown complete")
+            # =====================================================================
+            # CLEAN SHUTDOWN
+            # =====================================================================
+            print("\n" + "="*60)
+            print("🛑 SHUTTING DOWN AUTOTRADER")
+            print("="*60)
+            
+            # Stop WebSocket stream
+            print("📡 Stopping real-time data stream...")
+            self.ws_manager.stop()
+            
+            # API server will stop automatically (daemon thread)
+            print("🌐 API server stopping...")
+            
+            print("\n👋 AutoTrader shutdown complete")
+            print("="*60)
     
     def _sleep_until_market_open(self):
         """Sleep until exactly when market opens"""
@@ -305,11 +387,20 @@ class Orchestrator:
         
         return None
 
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
+
 def main():
     """Main entry point"""
+    print("\n" + "="*60)
+    print("🤖 AUTOTRADER INTEGRATED SYSTEM STARTING")
     print("="*60)
-    print("🤖 AutoTrader Orchestrator Starting")
-    print("="*60)
+    print("📦 Components to start:")
+    print("   • Orchestrator (algorithm execution)")
+    print("   • API Server (frontend communication)")
+    print("   • WebSocket Manager (real-time data)")
+    print("="*60 + "\n")
     
     orchestrator = Orchestrator()
     orchestrator.run()

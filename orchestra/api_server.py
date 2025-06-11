@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-API Server for AutoTrader
-Provides REST endpoints for frontend interaction with the trading system
+API Server for AutoTrader - INTEGRATED VERSION
+Now runs as a thread within the Orchestrator for direct WebSocket Manager access
 """
 
 from flask import Flask, request, jsonify
@@ -12,6 +12,7 @@ from pathlib import Path
 from datetime import datetime
 import importlib.util
 import traceback
+import threading
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -26,7 +27,12 @@ from orchestra.alpaca_wrapper import AlpacaWrapper
 from database.calendar_manager import MarketCalendar
 from database.db_manager import get_latest_price
 
-# Initialize Flask app
+# =============================================================================
+# GLOBAL VARIABLES - SET BY ORCHESTRATOR
+# =============================================================================
+
+# These will be set when run_api_server() is called
+ws_manager = None  # WebSocket Manager instance from orchestrator
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend access
 
@@ -58,7 +64,7 @@ def validate_pin():
         return jsonify({'error': str(e)}), 500
 
 # =============================================================================
-# ALGORITHM MANAGEMENT ENDPOINTS
+# ALGORITHM MANAGEMENT ENDPOINTS - NOW WITH WEBSOCKET INTEGRATION
 # =============================================================================
 
 @app.route('/api/algorithms', methods=['GET'])
@@ -131,7 +137,7 @@ def get_algorithms():
 
 @app.route('/api/algorithms', methods=['POST'])
 def create_algorithm_endpoint():
-    """Create a new algorithm instance"""
+    """Create a new algorithm instance - NOW WITH REAL-TIME DATA"""
     try:
         data = request.json
         ticker = data.get('ticker', '').upper()
@@ -161,6 +167,15 @@ def create_algorithm_endpoint():
         # Create algorithm in database
         algo_id = create_algorithm(ticker, algo_type, initial_capital)
         
+        # =====================================================================
+        # WEBSOCKET INTEGRATION - Subscribe to real-time data immediately
+        # =====================================================================
+        if ws_manager:
+            print(f"🔌 API: Adding {ticker} to WebSocket subscriptions")
+            ws_manager.add_algorithm(ticker)
+        else:
+            print("⚠️  WebSocket Manager not available - running in standalone mode")
+        
         # Get the created algorithm
         algorithm = get_algorithm(algo_id)
         
@@ -176,12 +191,28 @@ def create_algorithm_endpoint():
 
 @app.route('/api/algorithms/<int:algo_id>', methods=['DELETE'])
 def stop_algorithm_endpoint(algo_id):
-    """Stop a running algorithm"""
+    """Stop a running algorithm - NOW UNSUBSCRIBES FROM REAL-TIME DATA"""
     try:
+        # Get algorithm info BEFORE stopping (need ticker for unsubscribe)
+        algo_data = get_algorithm(algo_id)
+        if not algo_data:
+            return jsonify({'error': 'Algorithm not found'}), 404
+        
+        ticker = algo_data['ticker']
+        
         # Stop the algorithm
         success = stop_algorithm(algo_id)
         
         if success:
+            # =====================================================================
+            # WEBSOCKET INTEGRATION - Unsubscribe from real-time data
+            # =====================================================================
+            if ws_manager:
+                print(f"🔌 API: Removing {ticker} from WebSocket subscriptions")
+                ws_manager.remove_algorithm(ticker)
+            else:
+                print("⚠️  WebSocket Manager not available - running in standalone mode")
+            
             return jsonify({'success': True}), 200
         else:
             return jsonify({'error': 'Algorithm not found or already stopped'}), 404
@@ -329,14 +360,41 @@ def health_check():
     return jsonify({'status': 'healthy'}), 200
 
 # =============================================================================
-# MAIN
+# ORCHESTRATOR INTEGRATION - NEW ENTRY POINT
+# =============================================================================
+
+def run_api_server(websocket_manager, port=5001):
+    """
+    Run the API server with access to the WebSocket Manager
+    Called by the Orchestrator in a separate thread
+    
+    Args:
+        websocket_manager: WebSocketManager instance from orchestrator
+        port: Port to run the API server on (default 5001)
+    """
+    global ws_manager
+    ws_manager = websocket_manager
+    
+    print("\n" + "="*60)
+    print("🚀 Starting AutoTrader API Server (Integrated Mode)")
+    print("="*60)
+    print(f"📡 API endpoints available at http://localhost:{port}/api/")
+    print("🔐 Make sure system PIN is set in system.db")
+    print("📊 Market status:", "OPEN" if calendar.is_market_open_now() else "CLOSED")
+    print("🔌 WebSocket Manager:", "Connected" if ws_manager else "Not Available")
+    print("="*60 + "\n")
+    
+    # Run Flask app
+    # Use threaded=False since we're already in a thread
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=False)
+
+# =============================================================================
+# STANDALONE MODE (for testing)
 # =============================================================================
 
 if __name__ == '__main__':
-    print("🚀 Starting AutoTrader API Server...")
-    print("📡 API endpoints available at http://localhost:5000/api/")
-    print("🔐 Make sure system PIN is set in system.db")
-    print("📊 Market status:", "OPEN" if calendar.is_market_open_now() else "CLOSED")
+    print("\n⚠️  Running API Server in STANDALONE mode")
+    print("⚠️  WebSocket integration will NOT be available")
+    print("⚠️  For production, run via orchestrator.py\n")
     
-    # Run Flask app
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    run_api_server(None, port=5001)
