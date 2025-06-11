@@ -1,8 +1,52 @@
 # AutoTrader Completion Roadmap
 
-## Current Status
-✅ **Completed**: System database, market-hours database, Alpaca integration, data pipelines, frontend, first algorithm, API server, orchestrator core, WebSocket integration
-❌ **Remaining**: Full system testing and production hardening
+## Current System State (as of latest implementation)
+✅ **Frontend**: Fully functional at http://localhost:5001/
+✅ **Algorithm Management**: Create/stop working with PIN protection  
+✅ **WebSocket**: Auto-subscribes/unsubscribes based on running algorithms
+✅ **Test Algorithm**: Successfully created and running
+✅ **Execution**: Runs every minute at :02 seconds past
+✅ **All Core Components**: Built and integrated
+
+❌ **Remaining Issues**:
+- Total Account Value calculation needs verification
+- Algorithm timing workaround needs proper fix
+- Frontend shows browser time instead of MST
+- Algorithm code changes require orchestrator restart
+
+## Key Implementation Insights
+
+### 1. Integrated Architecture is Superior
+The move from multi-process to single-process with threads was the most significant improvement:
+- Eliminated IPC complexity
+- Direct WebSocket manager access from API
+- Simplified deployment and debugging
+- Thread-safe reference counting just works
+
+### 2. Frontend Must Be Served by Backend
+- File:// URLs cause CORS and other issues
+- API server serving frontend files solves many problems
+- Single origin for both API and static files
+
+### 3. JavaScript DOM Timing is Critical
+- Global element selection before DOMContentLoaded = broken system
+- Always wrap initialization in DOMContentLoaded listener
+
+### 4. Response Validation Matters
+- `response.ok` only checks HTTP status
+- Must check actual response data for business logic
+
+### 5. Module Caching Requires Restarts
+- Python caches imported modules
+- Algorithm changes need orchestrator restart
+- Consider implementing hot-reloading for development
+
+## Files Modified During Implementation
+
+1. **orchestra/orchestrator.py** - Added `_start_api_server()` method for thread integration
+2. **orchestra/api_server.py** - Added frontend file serving routes
+3. **frontend/dashboard.js** - Fixed DOM loading and PIN validation
+4. **algorithm/test_algo.py** - Created new test algorithm with trend following
 
 ---
 
@@ -151,31 +195,29 @@ orchestrator.py
 
 ---
 
-## Phase 5: Integration Testing (2 days) - CURRENT PHASE
+## Phase 5: System Debugging & Refinement - CURRENT PHASE
 
-### What Needs Testing
+### Known Issues to Fix
 
-#### Frontend Integration
-- [ ] Does frontend config need update for port 5001? (was 5000)
-- [ ] Do algorithm cards display correct real-time data?
-- [ ] Does stopping algorithm from frontend unsubscribe WebSocket?
+#### Timing & Data Access
+- [ ] Fix algorithm timing workaround (currently requesting 11 bars to get 10)
+- [ ] Ensure minute bars arrive at correct timestamps
+- [ ] Verify data consistency between WebSocket and historical
 
-#### Data Pipeline Verification
-- [ ] Are minute bars arriving at correct timestamps (XX:XX:00Z)?
-- [ ] Does WebSocket data format match historical format exactly?
-- [ ] Is data being stored correctly in market-hours-only database?
+#### Financial Calculations
+- [ ] Verify Total Account Value calculation accuracy
+- [ ] Confirm P&L calculations match expected values
+- [ ] Test available cash calculation with multiple algorithms
 
-#### Trading Execution
-- [ ] Does a buy order from algorithm get executed by orchestrator?
-- [ ] Does a sell order work correctly?
-- [ ] Are transactions recorded properly in system.db?
-- [ ] Do Alpaca orders fill and return correct prices?
+#### User Experience
+- [ ] Add MST timezone display option (currently shows browser local time)
+- [ ] Implement algorithm hot-reloading without orchestrator restart
+- [ ] Add better error messages for common issues
 
-#### Algorithm Functionality
-- [ ] Do algorithms handle position tracking correctly?
-- [ ] Does the SMA crossover logic trigger trades as expected?
-- [ ] Do algorithms recover from errors gracefully?
-- [ ] Can algorithms access sufficient historical data?
+#### System Reliability
+- [ ] Test behavior during market open/close transitions
+- [ ] Verify WebSocket reconnection after disconnection
+- [ ] Test system recovery from Alpaca API errors
 
 ---
 
@@ -294,18 +336,29 @@ tail -f logs/orchestrator.log  # Once logging implemented
 
 ## Success Metrics
 
-✅ **Phase 1-4**: Core system built and integrated  
-⏳ **Phase 5**: Full system testing in progress  
-❓ **Phase 6**: Production hardening pending  
+✅ **Core System**: All components built, integrated, and running
+✅ **Frontend**: Accessible at http://localhost:5001/ with full functionality
+✅ **Algorithms**: Can create, execute, and stop algorithms
+✅ **WebSockets**: Real-time data flows with proper subscription management
+✅ **Trading**: Test algorithm successfully makes decisions
+⏳ **Debugging**: Fixing timing, calculations, and UX issues
+❓ **Production**: 24-hour reliability testing pending
 
-**Remaining Timeline**: 3-4 days of testing and hardening
+**Remaining Timeline**: 2-3 days for debugging and production hardening
 
 ---
 
 ## Critical Reminders
 
+### Current Implementation State
+- **System is RUNNING**: Core functionality complete and tested
+- **Frontend Access**: http://localhost:5001/ (not file://)
+- **Test Algorithm**: `test_algo.py` trades 10 shares based on 5-bar MA
+- **Known Issues**: See Phase 5 debugging list above
+
 ### Architecture Changes
-- **Port is 5001** not 5000 - frontend config may need update
+- **INTEGRATED DESIGN**: Single process, not separate orchestrator/API
+- **Port is 5001** not 5000 - frontend config already updated
 - **Single process** - just run `orchestrator.py`, no separate API server
 - **WebSocket Manager** handles all real-time subscriptions with reference counting
 

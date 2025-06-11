@@ -51,11 +51,15 @@ python3 algorithm/test.py    # ✅
 ```
 
 ### Key Architecture Note
-As of June 11, 2025, the system uses an **integrated single-process architecture**:
-- API server runs as thread inside orchestrator (not separate process)
-- WebSocket manager provides thread-safe reference counting
-- Port changed from 5000 to 5001
-- Single entry point simplifies deployment and operation
+**CRITICAL CHANGE**: The system uses an **integrated single-process architecture** (implemented June 2025):
+- **Original Design**: Separate orchestrator and API server processes
+- **Implemented Design**: API server runs as thread inside orchestrator
+- **Benefits**: Direct WebSocket manager access, no IPC complexity, simplified deployment
+- **Frontend Serving**: API server now serves frontend files at http://localhost:5001/
+- **Port**: Changed from 5000 to 5001
+- **Single Entry Point**: Just run `python3 orchestra/orchestrator.py`
+
+This was the most significant architectural change from the original design and greatly simplified the entire system.
 
 ### Key Rules
 1. **Always use full paths from APAC root** (e.g., `database.db_manager`, not just `db_manager`)
@@ -274,7 +278,36 @@ FROM stock_prices;
 **File**: `orchestra/orchestrator.py`
 **Architecture**: Single integrated process with API server and WebSocket manager as threads
 
-### Integrated Architecture (NEW)
+### Integrated Architecture
+This is a **fundamental design change** from the original multi-process architecture:
+
+**Original Design**: Two separate processes
+```bash
+python3 orchestra/orchestrator.py    # Process 1
+python3 orchestra/api_server.py      # Process 2
+```
+
+**Implemented Design**: Single integrated process
+```bash
+python3 orchestra/orchestrator.py    # Everything runs from here
+```
+
+**Implementation**:
+```python
+def _start_api_server(self):
+    """Start the API server in a separate thread"""
+    from orchestra.api_server import run_api_server
+    
+    self.api_thread = threading.Thread(
+        target=run_api_server,
+        args=(self.ws_manager,),  # Pass WebSocket manager directly!
+        kwargs={'port': 5001},
+        daemon=True
+    )
+    self.api_thread.start()
+```
+
+### Process Architecture
 ```
 Single Process (orchestrator.py)
 ├── Main Thread
@@ -283,7 +316,7 @@ Single Process (orchestrator.py)
 │   └── Market Hours Management
 ├── API Server Thread
 │   ├── Flask endpoints on port 5001
-│   ├── Frontend communication
+│   ├── Frontend file serving
 │   └── Direct WebSocket Manager access
 └── WebSocket Thread
     ├── Real-time data stream
@@ -311,6 +344,8 @@ while True:
     else:
         sleep(15 * 60)  # 15 minutes when market closed
 ```
+
+**Timing Issue**: Algorithms running at :02 and requesting data "before" current time may miss the most recent bar. Current workaround is to request extra bars.
 
 ### WebSocket Management (`orchestra/websocket_manager.py`)
 - **Reference counting** for shared tickers
@@ -436,17 +471,98 @@ action, shares = algo.run("2024-01-31T20:00:00Z", 1)
 - **Position tracking**: Can implement complex multi-position strategies
 - **No calendar logic**: Database guarantees valid market minutes
 - **Auto-fetch**: If data missing, automatically fetches from Alpaca
+- **Timing Consideration**: Algorithms run at :02, may need to request extra bars
+
+### Example Algorithm: test_algo.py
+Simple trend-following algorithm for system testing:
+```python
+class Algorithm:
+    def __init__(self, ticker, initial_capital):
+        self.ticker = ticker
+        self.initial_capital = initial_capital
+        
+    def run(self, current_time, algo_id):
+        # Rebuild context from transaction history
+        transactions = get_transactions(algo_id)
+        position = sum(tx['shares'] if tx['type'] == 'buy' else -tx['shares'] 
+                      for tx in transactions)
+        
+        # Get data with workaround for timing
+        bars = get_data_for_algorithm(
+            ticker=self.ticker,
+            requirement_type='last_n_bars',
+            n=11,  # Request extra due to timing
+            before_timestamp=current_time
+        )
+        bars_to_use = bars[-10:]  # Use last 10
+        
+        # Calculate 5-bar moving average
+        last_5_avg = sum(bar['ohlcv']['c'] for bar in bars_to_use[-5:]) / 5
+        current_price = bars_to_use[-1]['ohlcv']['c']
+        
+        # Trade logic with 0.01% threshold
+        if current_price > last_5_avg * 1.0001 and position == 0:
+            return ('buy', 10)
+        elif current_price < last_5_avg * 0.9999 and position > 0:
+            return ('sell', position)
+        
+        return ('hold', 0)
+```
 
 ## FRONTEND
 
 **Location**: `/frontend/` directory
-**Configuration**: `config.js` sets API base URL (http://localhost:5001) - Note: Changed from 5000
+**Access**: http://localhost:5001/ (served by API server)
+**Configuration**: `config.js` sets API base URL (http://localhost:5001)
+
+### Frontend Serving
+API server serves frontend files directly:
+```python
+@app.route('/')
+def serve_dashboard():
+    return send_file('frontend/dashboard.html')
+```
+
+### Critical JavaScript Fix
+**DOM Loading Issue**: Elements must be selected after page load
+```javascript
+// BROKEN: Elements are null
+const elements = {
+    cardsContainer: document.getElementById('cardsContainer'),
+    // ...
+};
+
+// FIXED: Wait for DOM
+document.addEventListener('DOMContentLoaded', () => {
+    elements = {
+        cardsContainer: document.getElementById('cardsContainer'),
+        // ...
+    };
+    init();
+});
+```
+
+**PIN Validation Fix**: Check response data, not just status
+```javascript
+// BROKEN
+if (response.ok) { // Always true for 200
+
+// FIXED
+const data = await response.json();
+if (data.valid === true) {
+```
 
 ### Display Components
 - **Algorithm cards** with colored borders (green=profit, red=loss, white=break-even)
 - **PIN pad** for secure actions (default: 2020)
+  - PIN validation returns `{"valid": true/false}`
+  - Frontend must check `data.valid === true`, not `response.ok`
 - **Add algorithm modal** for creating new instances
 - **Horizontal scrolling** for multiple cards
+
+### Time Display
+- Backend provides UTC timestamps
+- Frontend converts to browser local time (not MST as originally planned)
 
 ### Polling Strategy
 - **Market hours**: Every 30 seconds
@@ -480,11 +596,16 @@ action, shares = algo.run("2024-01-31T20:00:00Z", 1)
 
 ### API Server (`orchestra/api_server.py`)
 
-**Port**: 5001 (Note: Changed from original 5000)
+**Port**: 5001 (Changed from original 5000)
 **Architecture**: Runs as thread inside orchestrator process
+**Frontend Serving**: Serves static files at http://localhost:5001/
+
+**Frontend Routes**
+- `GET /` - Serves dashboard.html
+- `GET /<filename>` - Serves other frontend files
 
 **Authentication**
-- `POST /api/validate-pin` - Verify PIN for secure actions
+- `POST /api/validate-pin` - Returns `{"valid": true/false}`
 
 **Algorithm Management**
 - `GET /api/algorithms` - List running algorithms with calculations
@@ -499,7 +620,9 @@ action, shares = algo.run("2024-01-31T20:00:00Z", 1)
 - `DELETE /api/algorithms/{id}` - Stop algorithm (triggers WebSocket unsubscription)
 
 **System Status**
-- `GET /api/available-algorithms` - Scan `/algorithm/` directory (singular)
+- `GET /api/available-algorithms` - Scans `/algorithm/` directory for all .py files with Algorithm class
+  - Shows all Python files except those starting with `_`
+  - No filtering of test files
 - `GET /api/account/cash` - Available cash for new allocations
 - `GET /api/market-status` - Current market open/closed state
 - `GET /api/validate-ticker?symbol=NVDA` - Validate ticker for trading
@@ -525,7 +648,9 @@ ALPACA_FEED=iex      # 'sip' for paid tier
 
 ### System Configuration
 - API Server Port: 5001 (changed from original 5000)
+- Frontend Access: http://localhost:5001/ (served by API server)
 - Single Process: Run `python3 orchestra/orchestrator.py` to start everything
+- Module Caching: Algorithm changes require orchestrator restart
 
 ## FULL FLOW
 
@@ -560,6 +685,7 @@ Available = Alpaca Account Cash - SUM(Running Algorithm Allocations)
 ```
 Total = Alpaca Account Cash + SUM(All Algorithm Current Values)
 ```
+**Note**: Total account value calculation needs verification in implementation
 
 ### File Structure
 ```
