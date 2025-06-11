@@ -2,7 +2,7 @@
 
 const CONFIG = {
     // API Base URL (adjust for production)
-    API_BASE_URL: 'http://localhost:5000',
+    API_BASE_URL: 'http://localhost:5001',
     
     // API Endpoints
     API_ENDPOINTS: {

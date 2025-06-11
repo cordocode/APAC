@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 # Database path
-DB_PATH = "system.db"
+DB_PATH = "system_databse/system.db"
 
 
 # =============================================================================

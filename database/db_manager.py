@@ -227,13 +227,13 @@ def get_latest_price(ticker: str) -> Optional[Dict]:
         conn.close()
 
 #==============================================================================
-# ALGORITHM DATA INTERFACE
+# ALGORITHM DATA INTERFACE - FIXED VERSION
 #==============================================================================
 
 def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List[Dict]:
     """
     Primary interface for algorithm data needs.
-    Every timestamp in database is guaranteed to be a valid market minute.
+    FIXED: Always returns the most recent N bars relative to requested time.
     
     Args:
         ticker: Stock symbol
@@ -256,75 +256,101 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         
         print(f"🔍 Getting last {n} bars for {ticker} before {before_timestamp}")
         
-        # Step 1: Try to get data from database
         conn = sqlite3.connect('database/stocks.db')
         cursor = conn.cursor()
         
-        query = f"""
-            SELECT minute_timestamp, {ticker}
+        # Step 1: Get the N most recent timestamps before the requested time
+        # This ensures we're looking at the RIGHT time range, not just any old data
+        timestamp_query = """
+            SELECT minute_timestamp
             FROM stock_prices 
             WHERE minute_timestamp <= ?
-            AND {ticker} IS NOT NULL
             ORDER BY minute_timestamp DESC
             LIMIT ?
         """
-        cursor.execute(query, (before_timestamp, n))
-        rows = cursor.fetchall()
-        conn.close()
+        cursor.execute(timestamp_query, (before_timestamp, n))
+        timestamp_rows = cursor.fetchall()
         
-        print(f"📊 Found {len(rows)} existing bars in database")
+        if not timestamp_rows:
+            print(f"❌ No timestamps found before {before_timestamp}")
+            conn.close()
+            return []
         
-        # Step 2: If missing data, fetch more intelligently
-        if len(rows) < n:
-            missing_count = n - len(rows)
-            print(f"📥 Need {missing_count} more bars, fetching from Alpaca...")
+        # Get the range we're looking at
+        timestamps = [row[0] for row in timestamp_rows]
+        newest_timestamp = timestamps[0]
+        oldest_timestamp = timestamps[-1]
+        
+        print(f"📍 Target range: {oldest_timestamp} to {newest_timestamp}")
+        
+        # Step 2: Check which of these timestamps have data
+        placeholders = ','.join(['?' for _ in timestamps])
+        data_check_query = f"""
+            SELECT minute_timestamp, {ticker}
+            FROM stock_prices 
+            WHERE minute_timestamp IN ({placeholders})
+            ORDER BY minute_timestamp DESC
+        """
+        cursor.execute(data_check_query, timestamps)
+        data_rows = cursor.fetchall()
+        
+        # Count how many have data vs NULL
+        non_null_count = sum(1 for row in data_rows if row[1] is not None)
+        null_count = len(timestamps) - non_null_count
+        
+        print(f"📊 Data check: {non_null_count} bars with data, {null_count} missing")
+        
+        # Step 3: If ANY data is missing, fetch it
+        if null_count > 0 or non_null_count < n:
+            print(f"❌ Missing {null_count} data points in the most recent {n} bars")
             
-            # Calculate fetch range
-            if rows:
-                # Start from oldest existing data
-                oldest_existing = rows[-1][0]  # oldest timestamp in results
-                fetch_end_date = oldest_existing[:10]
-            else:
-                # No existing data, start from before_timestamp
-                fetch_end_date = before_timestamp[:10]
+            # Calculate date range to fetch
+            fetch_start_date = oldest_timestamp[:10]
+            fetch_end_date = newest_timestamp[:10]
             
-            # Estimate how many days back to fetch (conservative approach)
-            # ~390 bars per trading day, but account for weekends/holidays
-            trading_days_needed = (missing_count // 300) + 3  # Conservative estimate
-            calendar_days_back = trading_days_needed * 1.5  # Account for weekends/holidays
+            # If dates are the same, extend the range
+            if fetch_start_date == fetch_end_date:
+                # Go back one more day to ensure we get enough data
+                fetch_start_dt = datetime.strptime(fetch_start_date, '%Y-%m-%d') - timedelta(days=1)
+                fetch_start_date = fetch_start_dt.strftime('%Y-%m-%d')
             
-            fetch_start_date = (
-                datetime.strptime(fetch_end_date, '%Y-%m-%d') - 
-                timedelta(days=int(calendar_days_back))
-            ).strftime('%Y-%m-%d')
+            print(f"📥 Fetching data from {fetch_start_date} to {fetch_end_date}")
             
-            # Import and use historical fetcher
+            conn.close()  # Close before fetching
+            
             from database.historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
-            
-            print(f"🔄 Auto-fetching {ticker} from {fetch_start_date} to {fetch_end_date}")
             result = fetcher.fetch_and_store(ticker, fetch_start_date, fetch_end_date)
             print(f"✅ Fetch result: {result}")
             
-            # Step 3: Re-query after fetching
+            # Reconnect after fetch
             conn = sqlite3.connect('database/stocks.db')
             cursor = conn.cursor()
-            cursor.execute(query, (before_timestamp, n))
-            rows = cursor.fetchall()
-            conn.close()
-            
-            print(f"📈 After fetching: found {len(rows)} total bars")
         
-        # Step 4: Convert to chronological order and return
+        # Step 4: Get the final data
+        final_query = f"""
+            SELECT minute_timestamp, {ticker}
+            FROM stock_prices 
+            WHERE minute_timestamp IN ({placeholders})
+            AND {ticker} IS NOT NULL
+            ORDER BY minute_timestamp DESC
+        """
+        cursor.execute(final_query, timestamps)
+        final_rows = cursor.fetchall()
+        conn.close()
+        
+        # Convert to chronological order and return
         results = []
-        for row in reversed(rows):  # Reverse to get oldest first
+        for row in reversed(final_rows):  # Reverse to get oldest first
             timestamp, json_data = row
-            ohlcv = json.loads(json_data)
-            results.append({"timestamp": timestamp, "ohlcv": ohlcv})
+            if json_data:  # Only include non-NULL data
+                ohlcv = json.loads(json_data)
+                results.append({"timestamp": timestamp, "ohlcv": ohlcv})
         
-        if len(results) < n:
-            print(f"⚠️  Warning: Algorithm requested {n} bars but only {len(results)} available")
-            print(f"⚠️  This may indicate new ticker or limited historical data")
+        if results:
+            print(f"✅ Returning {len(results)} bars from {results[0]['timestamp']} to {results[-1]['timestamp']}")
+        else:
+            print(f"⚠️  No data found after fetch attempt")
         
         return results
         

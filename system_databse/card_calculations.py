@@ -4,7 +4,7 @@ Card Calculations
 Functions to calculate display values for frontend algorithm cards
 """
 
-import system_db_manager
+from system_databse import system_db_manager
 from typing import Optional, Dict, Any
 
 
