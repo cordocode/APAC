@@ -63,11 +63,11 @@ class Algorithm:
             logger.info(f"Net cash used: ${net_cash_used:,.2f}")
             logger.info(f"Available cash: ${available_cash:,.2f}")
             
-            # Step 2: Get last 10 bars of data
+            # Step 2: Get last 10 bars of data (ask for 11 to ensure we get 10)
             bars = get_data_for_algorithm(
                 ticker=self.ticker,
                 requirement_type='last_n_bars',
-                n=10,
+                n=11,  # Ask for 11 to ensure we get at least 10
                 before_timestamp=current_time
             )
             
@@ -75,16 +75,22 @@ class Algorithm:
                 logger.warning(f"Insufficient data. Need 10 bars, got {len(bars) if bars else 0}")
                 return ('hold', 0)
             
-            # Extract close prices
+            logger.info(f"Got {len(bars)} bars total")
+            if bars:
+                logger.info(f"First bar timestamp: {bars[0]['timestamp']}")
+                logger.info(f"Last bar timestamp: {bars[-1]['timestamp']}")
+            
+            # Extract close prices (use only last 10 bars for calculation)
             close_prices = []
-            for bar in bars:
+            bars_to_use = bars[-10:]  # Take only the last 10 bars
+            for bar in bars_to_use:
                 if 'ohlcv' in bar and bar['ohlcv']:
                     close_prices.append(bar['ohlcv']['c'])
                 else:
                     logger.warning(f"Missing ohlcv data in bar")
                     return ('hold', 0)
             
-            logger.info(f"Got {len(close_prices)} close prices")
+            logger.info(f"Using last 10 bars for calculation")
             logger.info(f"Prices: {[f'${p:.2f}' for p in close_prices]}")
             
             # Step 3: Calculate simple trend
@@ -96,8 +102,13 @@ class Algorithm:
             logger.info(f"Last 5 bars average: ${last_5_avg:.2f}")
             logger.info(f"Current price: ${current_price:.2f}")
             
+            # Calculate trend percentage change for more sensitivity
+            trend_change = ((last_5_avg - first_5_avg) / first_5_avg) * 100
+            logger.info(f"Trend change: {trend_change:.3f}%")
+            
             # Step 4: Make trading decision with position/capital constraints
-            if last_5_avg > first_5_avg:
+            # Use a small threshold for more active trading (0.01% = 0.0001)
+            if trend_change > 0.01:  # Even tiny upward trend triggers buy
                 # Trend is UP - try to buy
                 logger.info("📈 TREND IS UP")
                 
@@ -111,7 +122,7 @@ class Algorithm:
                     logger.info(f"❌ Not enough cash. Need ${cost_to_buy:.2f}, have ${available_cash:.2f}")
                     return ('hold', 0)
                     
-            elif last_5_avg < first_5_avg:
+            elif trend_change < -0.01:  # Even tiny downward trend triggers sell
                 # Trend is DOWN - try to sell
                 logger.info("📉 TREND IS DOWN")
                 
@@ -124,8 +135,8 @@ class Algorithm:
                     return ('hold', 0)
                     
             else:
-                # Trend is FLAT
-                logger.info("➡️ TREND IS FLAT - holding")
+                # Trend is FLAT (between -0.01% and +0.01%)
+                logger.info(f"➡️ TREND IS FLAT ({trend_change:.3f}%) - holding")
                 return ('hold', 0)
                 
         except Exception as e:

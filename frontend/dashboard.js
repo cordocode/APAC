@@ -1,4 +1,5 @@
 // AutoTrader Dashboard JavaScript
+console.log('Dashboard.js loaded');
 
 // Global State
 let algorithms = [];
@@ -10,60 +11,81 @@ let currentPinAction = null;
 let selectedAlgorithmId = null;
 let pollingInterval = null;
 
-// DOM Elements
-const elements = {
-    cardsContainer: document.getElementById('cardsContainer'),
-    positionIndicators: document.getElementById('positionIndicators'),
-    totalValue: document.getElementById('totalValue'),
-    addCard: document.getElementById('addCard'),
-    
-    // PIN Modal
-    pinModal: document.getElementById('pinModal'),
-    pinDots: [
-        document.getElementById('pinDot1'),
-        document.getElementById('pinDot2'),
-        document.getElementById('pinDot3'),
-        document.getElementById('pinDot4')
-    ],
-    pinError: document.getElementById('pinError'),
-    closePinModal: document.getElementById('closePinModal'),
-    
-    // Add Algorithm Modal
-    addAlgorithmModal: document.getElementById('addAlgorithmModal'),
-    tickerInput: document.getElementById('tickerInput'),
-    algorithmSelect: document.getElementById('algorithmSelect'),
-    allocationInput: document.getElementById('allocationInput'),
-    availableCash: document.getElementById('availableCash'),
-    formError: document.getElementById('formError'),
-    createAlgorithmBtn: document.getElementById('createAlgorithmBtn'),
-    cancelAddBtn: document.getElementById('cancelAddBtn'),
-    closeAddModal: document.getElementById('closeAddModal'),
-    
-    // Stop Confirmation Modal
-    stopConfirmModal: document.getElementById('stopConfirmModal'),
-    stopConfirmText1: document.getElementById('stopConfirmText1'),
-    stopConfirmText2: document.getElementById('stopConfirmText2'),
-    confirmStopBtn: document.getElementById('confirmStopBtn'),
-    cancelStopBtn: document.getElementById('cancelStopBtn')
-};
+// DOM Elements (will be populated after DOM loads)
+let elements = {};
 
 // Initialize
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+    try {
+        console.log('DOMContentLoaded fired');
+        
+        // Populate elements after DOM is loaded
+        elements = {
+            cardsContainer: document.getElementById('cardsContainer'),
+            positionIndicators: document.getElementById('positionIndicators'),
+            totalValue: document.getElementById('totalValue'),
+            addCard: document.getElementById('addCard'),
+            
+            // PIN Modal
+            pinModal: document.getElementById('pinModal'),
+            pinDots: [
+                document.getElementById('pinDot1'),
+                document.getElementById('pinDot2'),
+                document.getElementById('pinDot3'),
+                document.getElementById('pinDot4')
+            ],
+            pinError: document.getElementById('pinError'),
+            closePinModal: document.getElementById('closePinModal'),
+            
+            // Add Algorithm Modal
+            addAlgorithmModal: document.getElementById('addAlgorithmModal'),
+            tickerInput: document.getElementById('tickerInput'),
+            algorithmSelect: document.getElementById('algorithmSelect'),
+            allocationInput: document.getElementById('allocationInput'),
+            availableCash: document.getElementById('availableCash'),
+            formError: document.getElementById('formError'),
+            createAlgorithmBtn: document.getElementById('createAlgorithmBtn'),
+            cancelAddBtn: document.getElementById('cancelAddBtn'),
+            closeAddModal: document.getElementById('closeAddModal'),
+            
+            // Stop Confirmation Modal
+            stopConfirmModal: document.getElementById('stopConfirmModal'),
+            stopConfirmText1: document.getElementById('stopConfirmText1'),
+            stopConfirmText2: document.getElementById('stopConfirmText2'),
+            confirmStopBtn: document.getElementById('confirmStopBtn'),
+            cancelStopBtn: document.getElementById('cancelStopBtn')
+        };
+        
+        console.log('Elements loaded:', Object.keys(elements).length);
+        console.log('Add Algorithm Modal element:', elements.addAlgorithmModal);
+        
+        init();
+    } catch (error) {
+        console.error('Error during initialization:', error);
+    }
+});
 
 function init() {
+    console.log('Dashboard initializing...');
     setupEventListeners();
     loadAvailableAlgorithms();
     loadData();
     startPolling();
+    console.log('Dashboard initialized');
 }
 
 // Event Listeners
 function setupEventListeners() {
+    console.log('Setting up event listeners...');
+    
     // Add Card Click
     elements.addCard.addEventListener('click', handleAddCardClick);
+    console.log('Add card click listener attached');
     
     // PIN Pad
-    document.querySelectorAll('.pin-btn').forEach(btn => {
+    const pinButtons = document.querySelectorAll('.pin-btn');
+    console.log('Found PIN buttons:', pinButtons.length);
+    pinButtons.forEach(btn => {
         btn.addEventListener('click', handlePinButtonClick);
     });
     elements.closePinModal.addEventListener('click', closePinModal);
@@ -85,6 +107,8 @@ function setupEventListeners() {
             }
         });
     });
+    
+    console.log('Event listeners setup complete');
 }
 
 // Data Loading
@@ -105,9 +129,20 @@ async function loadData() {
 }
 
 async function loadAvailableAlgorithms() {
+    console.log('Loading available algorithms...');
     try {
         const response = await fetch(getApiUrl('AVAILABLE_ALGORITHMS'));
-        availableAlgorithmTypes = await response.json();
+        const data = await response.json();
+        console.log('Available algorithms response:', data);
+        
+        // Handle both array and object response formats
+        availableAlgorithmTypes = Array.isArray(data) ? data : (data.algorithms || []);
+        console.log('Processed algorithm types:', availableAlgorithmTypes);
+        
+        // Log each algorithm found
+        availableAlgorithmTypes.forEach((algo, index) => {
+            console.log(`Algorithm ${index}: type="${algo.type}", name="${algo.name}"`);
+        });
         
         // Populate dropdown
         elements.algorithmSelect.innerHTML = '<option value="">Select algorithm...</option>';
@@ -117,19 +152,28 @@ async function loadAvailableAlgorithms() {
             option.textContent = algo.name;
             elements.algorithmSelect.appendChild(option);
         });
+        console.log('Algorithm dropdown populated with', availableAlgorithmTypes.length, 'algorithms');
     } catch (error) {
         console.error('Error loading available algorithms:', error);
     }
 }
 
 async function loadAvailableCash() {
+    console.log('loadAvailableCash called');
     try {
-        const response = await fetch(getApiUrl('ACCOUNT_CASH'));
+        const url = getApiUrl('ACCOUNT_CASH');
+        console.log('Account cash URL:', url);
+        const response = await fetch(url);
+        console.log('Account cash response status:', response.status);
         const data = await response.json();
+        console.log('Account cash data:', data);
         availableCash = data.available_cash || 0;
+        console.log('Available cash set to:', availableCash);
         elements.availableCash.textContent = formatCurrency(availableCash);
+        console.log('Available cash display updated');
     } catch (error) {
         console.error('Error loading available cash:', error);
+        throw error; // Re-throw to be caught by validatePin
     }
 }
 
@@ -232,13 +276,16 @@ function createAlgorithmCard(algo) {
 let pinEntry = '';
 
 function handleAddCardClick() {
+    console.log('Add card clicked');
     currentPinAction = 'add';
     showPinModal();
 }
 
 function handleStopClick(algorithmId) {
+    console.log('Stop clicked for algorithm ID:', algorithmId);
     currentPinAction = 'stop';
     selectedAlgorithmId = algorithmId;
+    console.log('Set selectedAlgorithmId to:', selectedAlgorithmId);
     showPinModal();
 }
 
@@ -257,12 +304,14 @@ function closePinModal() {
 
 function handlePinButtonClick(e) {
     const digit = e.target.dataset.digit;
+    console.log('PIN button clicked:', digit);
     
     if (pinEntry.length < 4) {
         pinEntry += digit;
         updatePinDisplay();
         
         if (pinEntry.length === 4) {
+            console.log('PIN complete, validating...');
             validatePin();
         }
     }
@@ -275,23 +324,59 @@ function updatePinDisplay() {
 }
 
 async function validatePin() {
+    console.log('Validating PIN:', pinEntry);
+    console.log('Current action:', currentPinAction);
+    
     try {
-        const response = await fetch(getApiUrl('VALIDATE_PIN'), {
+        const url = getApiUrl('VALIDATE_PIN');
+        console.log('PIN validation URL:', url);
+        
+        const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pin: pinEntry })
         });
         
-        if (response.ok) {
-            closePinModal();
+        console.log('PIN validation response status:', response.status);
+        const data = await response.json();
+        console.log('PIN validation response data:', data);
+        
+        if (data.valid === true) {
+            console.log('PIN is valid');
+            
+            // Close PIN modal first
+            elements.pinModal.style.display = 'none';
+            pinEntry = '';
             
             if (currentPinAction === 'add') {
-                await loadAvailableCash();
-                showAddAlgorithmModal();
+                console.log('Action is ADD, loading cash...');
+                try {
+                    await loadAvailableCash();
+                } catch (e) {
+                    console.error('Failed to load cash:', e);
+                }
+                console.log('Showing add modal...');
+                elements.addAlgorithmModal.style.display = 'flex';
             } else if (currentPinAction === 'stop') {
-                showStopConfirmModal();
+                console.log('Action is STOP, showing confirm modal...');
+                console.log('Selected algo ID:', selectedAlgorithmId);
+                
+                const algo = algorithms.find(a => a.id === selectedAlgorithmId);
+                if (!algo) {
+                    console.error('Algorithm not found!');
+                    return;
+                }
+                
+                const profitLoss = algo.pnl >= 0 ? 'profit' : 'loss';
+                elements.stopConfirmText1.textContent = 
+                    `Stopping ${algo.ticker} algorithm will sell all ${algo.current_shares} shares`;
+                elements.stopConfirmText2.textContent = 
+                    `This will realize a ${profitLoss} of ${formatCurrency(Math.abs(algo.pnl))}`;
+                
+                elements.stopConfirmModal.style.display = 'flex';
             }
         } else {
+            console.log('PIN is invalid');
             elements.pinError.style.display = 'block';
             pinEntry = '';
             updatePinDisplay();
@@ -306,11 +391,18 @@ async function validatePin() {
 
 // Add Algorithm Modal Functions
 function showAddAlgorithmModal() {
+    console.log('showAddAlgorithmModal called');
+    console.log('Available algorithms:', availableAlgorithmTypes);
+    console.log('Algorithm select element:', elements.algorithmSelect);
+    console.log('Add algorithm modal element:', elements.addAlgorithmModal);
+    
     elements.tickerInput.value = '';
     elements.algorithmSelect.value = '';
     elements.allocationInput.value = '';
     elements.formError.style.display = 'none';
     elements.addAlgorithmModal.style.display = 'flex';
+    
+    console.log('Add algorithm modal display style:', elements.addAlgorithmModal.style.display);
 }
 
 function closeAddAlgorithmModal() {
@@ -318,9 +410,13 @@ function closeAddAlgorithmModal() {
 }
 
 async function handleCreateAlgorithm() {
+    console.log('handleCreateAlgorithm called');
+    
     const ticker = elements.tickerInput.value.toUpperCase().trim();
     const algorithmType = elements.algorithmSelect.value;
     const allocation = parseFloat(elements.allocationInput.value);
+    
+    console.log('Create algorithm inputs:', { ticker, algorithmType, allocation });
     
     // Validation
     if (!ticker || !algorithmType || !allocation) {
@@ -335,10 +431,11 @@ async function handleCreateAlgorithm() {
     
     try {
         // Validate ticker
-        const tickerResponse = await fetch(
-            getApiUrl('VALIDATE_TICKER') + '?symbol=' + ticker
-        );
+        const tickerUrl = getApiUrl('VALIDATE_TICKER') + '?symbol=' + ticker;
+        console.log('Validating ticker at:', tickerUrl);
+        const tickerResponse = await fetch(tickerUrl);
         const tickerData = await tickerResponse.json();
+        console.log('Ticker validation result:', tickerData);
         
         if (!tickerData.valid) {
             showFormError('Invalid ticker symbol');
@@ -346,7 +443,9 @@ async function handleCreateAlgorithm() {
         }
         
         // Create algorithm
-        const response = await fetch(getApiUrl('CREATE_ALGORITHM'), {
+        const createUrl = getApiUrl('CREATE_ALGORITHM');
+        console.log('Creating algorithm at:', createUrl);
+        const response = await fetch(createUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -356,11 +455,18 @@ async function handleCreateAlgorithm() {
             })
         });
         
+        console.log('Create response status:', response.status);
+        
         if (response.ok) {
+            console.log('Algorithm created successfully');
             closeAddAlgorithmModal();
+            
+            // Immediately update the display
+            console.log('Reloading data after create...');
             await loadData();
         } else {
             const error = await response.json();
+            console.error('Create error:', error);
             showFormError(error.message || 'Failed to create algorithm');
         }
     } catch (error) {
@@ -376,8 +482,17 @@ function showFormError(message) {
 
 // Stop Confirmation Modal Functions
 function showStopConfirmModal() {
+    console.log('showStopConfirmModal called');
+    console.log('Selected algorithm ID:', selectedAlgorithmId);
+    console.log('Algorithms array:', algorithms);
+    
     const algo = algorithms.find(a => a.id === selectedAlgorithmId);
-    if (!algo) return;
+    console.log('Found algorithm:', algo);
+    
+    if (!algo) {
+        console.error('Algorithm not found with ID:', selectedAlgorithmId);
+        return;
+    }
     
     const profitLoss = algo.pnl >= 0 ? 'profit' : 'loss';
     
@@ -386,7 +501,9 @@ function showStopConfirmModal() {
     elements.stopConfirmText2.textContent = 
         `This will realize a ${profitLoss} of ${formatCurrency(Math.abs(algo.pnl))}`;
     
+    console.log('Stop confirm modal element:', elements.stopConfirmModal);
     elements.stopConfirmModal.style.display = 'flex';
+    console.log('Stop confirm modal display style:', elements.stopConfirmModal.style.display);
 }
 
 function closeStopConfirmModal() {
@@ -395,17 +512,32 @@ function closeStopConfirmModal() {
 }
 
 async function handleConfirmStop() {
-    if (!selectedAlgorithmId) return;
+    console.log('handleConfirmStop called');
+    console.log('Stopping algorithm ID:', selectedAlgorithmId);
+    
+    if (!selectedAlgorithmId) {
+        console.error('No algorithm ID selected');
+        return;
+    }
     
     try {
-        const response = await fetch(
-            getApiUrl('STOP_ALGORITHM', { id: selectedAlgorithmId }),
-            { method: 'DELETE' }
-        );
+        const url = getApiUrl('STOP_ALGORITHM', { id: selectedAlgorithmId });
+        console.log('Stop algorithm URL:', url);
+        
+        const response = await fetch(url, { method: 'DELETE' });
+        console.log('Stop response status:', response.status);
         
         if (response.ok) {
+            console.log('Algorithm stopped successfully');
             closeStopConfirmModal();
+            
+            // Immediately update the display
+            console.log('Reloading data after stop...');
             await loadData();
+        } else {
+            console.error('Failed to stop algorithm:', response.status);
+            const errorData = await response.json();
+            console.error('Error details:', errorData);
         }
     } catch (error) {
         console.error('Error stopping algorithm:', error);
@@ -413,6 +545,8 @@ async function handleConfirmStop() {
 }
 
 // Polling Functions
+// NOTE: The dashboard polls every 30 seconds during market hours (60 minutes when closed)
+// to update card data. User actions (create/stop) immediately refresh the display.
 function startPolling() {
     adjustPollingInterval();
 }
@@ -442,11 +576,18 @@ function formatPnL(amount) {
 function formatTime(timestamp) {
     if (!timestamp) return 'Never';
     
+    // Parse the UTC timestamp
     const date = new Date(timestamp);
+    
+    // Convert to local time (browser's timezone)
     const hours = date.getHours();
     const minutes = date.getMinutes().toString().padStart(2, '0');
     const ampm = hours >= 12 ? 'PM' : 'AM';
     const displayHours = hours % 12 || 12;
+    
+    // You can also add date if needed
+    // const month = date.getMonth() + 1;
+    // const day = date.getDate();
     
     return `${displayHours}:${minutes} ${ampm}`;
 }

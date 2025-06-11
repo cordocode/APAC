@@ -258,13 +258,22 @@ def get_available_algorithms():
         # Path to algorithm directory (singular!)
         algo_dir = Path(__file__).parent.parent / 'algorithm'
         
-        if not algo_dir.exists():
-            return jsonify({'algorithms': []}), 200
+        print(f"📂 Scanning algorithm directory: {algo_dir}")
         
-        # Find all .py files that aren't __pycache__ or test files
+        if not algo_dir.exists():
+            print(f"❌ Algorithm directory does not exist: {algo_dir}")
+            return jsonify([]), 200
+        
+        # Find all .py files
         available = []
-        for file in algo_dir.glob('*.py'):
-            if file.stem.startswith('_') or file.stem.startswith('test'):
+        py_files = list(algo_dir.glob('*.py'))
+        print(f"📄 Found {len(py_files)} Python files in algorithm directory")
+        
+        for file in py_files:
+            print(f"  - Checking file: {file.name}")
+            
+            if file.stem.startswith('_') or file.stem.startswith('__'):
+                print(f"    ⏭️  Skipping {file.stem} (private file)")
                 continue
                 
             # Try to load the module and check if it has Algorithm class
@@ -278,10 +287,14 @@ def get_available_algorithms():
                         'type': file.stem,
                         'name': file.stem.replace('_', ' ').title()
                     })
+                    print(f"    ✅ Added algorithm: {file.stem}")
+                else:
+                    print(f"    ❌ No Algorithm class found in {file.stem}")
             except Exception as e:
-                print(f"⚠️  Couldn't load algorithm {file.stem}: {e}")
+                print(f"    ⚠️  Couldn't load algorithm {file.stem}: {e}")
                 continue
         
+        print(f"📊 Returning {len(available)} available algorithms")
         return jsonify(available), 200
         
     except Exception as e:
