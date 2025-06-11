@@ -1,12 +1,12 @@
 # AutoTrader Completion Roadmap
 
 ## Current Status
-✅ **Completed**: System database, market-hours database, Alpaca integration, data pipelines, frontend
-❌ **Remaining**: Algorithms, Orchestrator, API Server
+✅ **Completed**: System database, market-hours database, Alpaca integration, data pipelines, frontend, first algorithm, API server, orchestrator core, WebSocket integration
+❌ **Remaining**: Full system testing and production hardening
 
 ---
 
-## Phase 1: First Algorithm (1-2 days)
+## Phase 1: First Algorithm (1-2 days) ✅ COMPLETED
 
 ### Build `algorithm/sma_crossover.py` (Note: singular 'algorithm' folder)
 Create the algorithm class structure that will serve as template for all future algorithms:
@@ -62,9 +62,11 @@ print(f"Decision: {action} {shares} shares")
 
 Run from APAC root: `python3 algorithm/test_sma.py`
 
+**Note**: After integration, use `python3 orchestra/orchestrator.py` to run entire system
+
 ---
 
-## Phase 2: API Server (2 days)
+## Phase 2: API Server (2 days) ✅ COMPLETED (Integrated into Orchestrator)
 
 ### Build `orchestra/api_server.py`
 Start with core endpoints needed for frontend functionality:
@@ -97,7 +99,7 @@ Start with core endpoints needed for frontend functionality:
 
 ---
 
-## Phase 3: Orchestrator Core (2-3 days)
+## Phase 3: Orchestrator Core (2-3 days) ✅ COMPLETED
 
 ### Build `orchestra/orchestrator.py` - Part 1
 Implement the main execution loop without WebSocket management:
@@ -127,52 +129,53 @@ Implement the main execution loop without WebSocket management:
 
 ---
 
-## Phase 4: WebSocket Integration (2 days)
+## Phase 4: WebSocket Integration (2 days) ✅ COMPLETED
 
-### Enhance `orchestra/orchestrator.py` - Part 2
-Add WebSocketManager class for real-time data:
+### Implemented Architecture
+**Major Change**: API server now runs as thread inside orchestrator
 
-1. **Reference counting** for shared tickers
-2. **Automatic subscription** management
-3. **Separate thread** for WebSocket stream
-4. **Graceful reconnection** on failures
-
-```python
-class WebSocketManager:
-    def __init__(self):
-        self.streamer = RealtimeStreamer()
-        self.active_tickers = {}  # ticker -> count
-        
-    def update_subscriptions(self, running_algorithms):
-        # Add/remove subscriptions based on active algorithms
+**Single Process Architecture**:
+```
+orchestrator.py
+├── Main Thread: Algorithm execution, trading
+├── API Thread: Flask on port 5001 with direct WebSocket access
+└── WebSocket Thread: Real-time data with reference counting
 ```
 
-**Testing**: Verify data flows from WebSocket → database → algorithms
+**Key Features Implemented**:
+- WebSocketManager with reference counting
+- Thread-safe operations with locks
+- Automatic subscription management
+- Direct integration between API and WebSocket
+- Single entry point: `python3 orchestra/orchestrator.py`
 
 ---
 
-## Phase 5: Integration Testing (2 days)
+## Phase 5: Integration Testing (2 days) - CURRENT PHASE
 
-### End-to-End Testing Checklist
+### What Needs Testing
 
-1. **System startup sequence**
-   - Start API server on port 5000
-   - Start orchestrator (initializes WebSockets)
-   - Open frontend in browser
+#### Frontend Integration
+- [ ] Does frontend config need update for port 5001? (was 5000)
+- [ ] Do algorithm cards display correct real-time data?
+- [ ] Does stopping algorithm from frontend unsubscribe WebSocket?
 
-2. **Create algorithm flow**
-   - Enter PIN → Add algorithm → Verify card appears
-   - Check WebSocket subscription starts
-   - Wait for first trade → Verify transaction recorded
+#### Data Pipeline Verification
+- [ ] Are minute bars arriving at correct timestamps (XX:XX:00Z)?
+- [ ] Does WebSocket data format match historical format exactly?
+- [ ] Is data being stored correctly in market-hours-only database?
 
-3. **Market hours testing**
-   - Verify orchestrator sleeps when market closed
-   - Verify frontend polling adjusts (30s vs 60min)
+#### Trading Execution
+- [ ] Does a buy order from algorithm get executed by orchestrator?
+- [ ] Does a sell order work correctly?
+- [ ] Are transactions recorded properly in system.db?
+- [ ] Do Alpaca orders fill and return correct prices?
 
-4. **Error scenarios**
-   - Algorithm crash doesn't kill orchestrator
-   - WebSocket disconnect/reconnect
-   - Invalid ticker handling
+#### Algorithm Functionality
+- [ ] Do algorithms handle position tracking correctly?
+- [ ] Does the SMA crossover logic trigger trades as expected?
+- [ ] Do algorithms recover from errors gracefully?
+- [ ] Can algorithms access sufficient historical data?
 
 ---
 
@@ -194,9 +197,9 @@ class WebSocketManager:
    ```bash
    #!/bin/bash
    # start_autotrader.sh
-   python orchestra/api_server.py &
-   python orchestra/orchestrator.py &
-   chromium-browser --kiosk http://localhost:5000/frontend/dashboard.html
+   cd /path/to/APAC
+   python3 orchestra/orchestrator.py &
+   chromium-browser --kiosk http://localhost:5001/frontend/dashboard.html
    ```
 
 3. **Error recovery**
@@ -210,34 +213,105 @@ class WebSocketManager:
 
 ---
 
+## Comprehensive Testing Checklist
+
+### System Integration Tests
+- [ ] Single process startup works (`python3 orchestra/orchestrator.py`)
+- [ ] API server accessible at http://localhost:5001
+- [ ] WebSocket subscriptions initialize from database on startup
+- [ ] All components shut down cleanly on Ctrl+C
+
+### Market Hours & Timing
+- [ ] What happens when market closes while system is running?
+- [ ] Does system correctly handle market open transition?
+- [ ] Does the 2-second delay ensure fresh data for algorithms?
+- [ ] Do algorithms skip execution during market closed hours?
+
+### WebSocket & Real-time Data
+- [ ] Does system correctly reconnect WebSocket after disconnection?
+- [ ] Can multiple algorithms share same ticker correctly?
+- [ ] Does reference counting work when stopping algorithms in different orders?
+- [ ] What happens on orchestrator restart - do subscriptions restore correctly?
+- [ ] Are WebSocket messages appearing in console logs?
+
+### Trading & Position Management
+- [ ] Does available cash calculation work with running algorithms?
+- [ ] Do algorithm cards show correct P&L calculations?
+- [ ] Is position tracking accurate across multiple trades?
+- [ ] Do partial fills get handled correctly?
+
+### Error Scenarios
+- [ ] What happens if algorithm crashes during execution?
+- [ ] How does system handle invalid ticker symbols?
+- [ ] What if Alpaca API is down or returns errors?
+- [ ] Is there database lock contention between threads?
+- [ ] Does system continue if one algorithm fails?
+
+### Edge Cases
+- [ ] Can you create algorithm for ticker with no historical data?
+- [ ] What happens with extremely volatile price movements?
+- [ ] Does system handle pre-market/after-hours data correctly?
+- [ ] Can algorithms handle stock splits or corporate actions?
+
+### Performance & Reliability
+- [ ] Are there any race conditions between threads?
+- [ ] Does system run for 24+ hours without memory leaks?
+- [ ] Can system handle 10+ algorithms simultaneously?
+- [ ] Is database performance adequate with millions of rows?
+
+---
+
 ## Testing Strategy Throughout
 
 ### Unit Testing Priority
-1. Algorithm logic (buy/sell decisions)
-2. API endpoint responses
-3. WebSocket subscription management
+1. Algorithm logic (buy/sell decisions) ✅
+2. API endpoint responses ✅
+3. WebSocket subscription management ✅
 4. Trade execution flow
 
 ### Integration Testing Priority
 1. Frontend → API → Database flow
 2. Orchestrator → Algorithm → Alpaca flow
 3. WebSocket → Database → Algorithm flow
+4. Complete trading lifecycle
+
+### Manual Testing Commands
+```bash
+# Start system
+cd /path/to/APAC
+python3 orchestra/orchestrator.py
+
+# Check if data flowing (new terminal)
+python3
+>>> from database.db_manager import get_latest_price
+>>> print(get_latest_price('NVDA'))  # Should show recent data
+
+# Monitor logs
+tail -f logs/orchestrator.log  # Once logging implemented
+```
 
 ---
 
 ## Success Metrics
 
-✅ **Phase 1-2**: Frontend can create/display algorithm cards  
-✅ **Phase 3**: Algorithms execute trades during market hours  
-✅ **Phase 4**: Real-time data flows to all components  
-✅ **Phase 5**: System runs for 24 hours without intervention  
-✅ **Phase 6**: System auto-recovers from common failures  
+✅ **Phase 1-4**: Core system built and integrated  
+⏳ **Phase 5**: Full system testing in progress  
+❓ **Phase 6**: Production hardening pending  
 
-**Total Timeline**: 10-14 days of focused development
+**Remaining Timeline**: 3-4 days of testing and hardening
 
 ---
 
 ## Critical Reminders
+
+### Architecture Changes
+- **Port is 5001** not 5000 - frontend config may need update
+- **Single process** - just run `orchestrator.py`, no separate API server
+- **WebSocket Manager** handles all real-time subscriptions with reference counting
+
+### Import Paths
+- `realtime_pull.py` uses `from database.db_manager import insert_minute_data`
+- All imports must use full paths from APAC root
 
 ### Folder Names & Typos
 - Algorithm folder is **singular**: `/algorithm/` NOT `/algorithms/`
@@ -258,8 +332,7 @@ bar['ohlcv']['c']  # ✅ Correct
 Always run from APAC root directory:
 ```bash
 cd /path/to/APAC
-python3 algorithm/test.py    # ✅
-# NOT: cd algorithm && python3 test.py ❌
+python3 orchestra/orchestrator.py    # ✅ Single entry point
 ```
 
 ### Return Format

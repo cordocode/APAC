@@ -10,6 +10,7 @@
 - **Zero Calendar Logic**: No algorithm needs to handle weekends, holidays, or market hours
 - **Allocation-Based Trading**: Each algorithm receives a fixed capital allocation to manage
 - **UTC Everywhere**: All internal timestamps use UTC with 'Z' suffix format
+- **Integrated Architecture**: API server runs as thread within orchestrator (single process)
 
 ### Technology Stack
 - **Backend**: Python with Flask API server
@@ -37,13 +38,24 @@ sys.path.append('.')  # Add APAC root to path
 from algorithm.sma_crossover import Algorithm
 ```
 
-### Running Scripts
+## Running Scripts
 ```bash
-# ALWAYS run from APAC root:
-cd /Volumes/SSD/APAC  # or your APAC path
-python3 algorithm/test_file.py   # ✅ Correct
-# NOT: cd algorithm && python3 test_file.py ❌
+# Start entire system with single command:
+cd /path/to/APAC
+python3 orchestra/orchestrator.py
+
+# For testing individual components:
+cd /path/to/APAC
+python3 algorithm/test.py    # ✅
+# NOT: cd algorithm && python3 test.py ❌
 ```
+
+### Key Architecture Note
+As of June 11, 2025, the system uses an **integrated single-process architecture**:
+- API server runs as thread inside orchestrator (not separate process)
+- WebSocket manager provides thread-safe reference counting
+- Port changed from 5000 to 5001
+- Single entry point simplifies deployment and operation
 
 ### Key Rules
 1. **Always use full paths from APAC root** (e.g., `database.db_manager`, not just `db_manager`)
@@ -191,7 +203,7 @@ FROM transactions WHERE algorithm_id = ?;
 ```
 
 ### Structure
-- **~1 million rows** of market-hours-only timestamps (2018-2028)
+- **~2.5 million rows** of market-hours-only timestamps (2018-2028)
 - **No weekends, holidays, or after-hours data**
 - **Dynamic ticker columns** added as needed
 - **JSON storage** for OHLCV data per cell
@@ -253,18 +265,38 @@ FROM stock_prices;
 ### Data Pipeline
 - **Historical**: `historical_pull.py` fetches past data from Alpaca
 - **Real-time**: `realtime_pull.py` manages WebSocket streams
+  - Uses `from database.db_manager import insert_minute_data` (fixed import path)
 - **Storage**: Both write to the same market-hours-only structure
 - **Import Note**: When `db_manager.py` imports from same directory, use `from database.historical_pull`
 
 ## ORCHESTRATOR
 
 **File**: `orchestra/orchestrator.py`
+**Architecture**: Single integrated process with API server and WebSocket manager as threads
+
+### Integrated Architecture (NEW)
+```
+Single Process (orchestrator.py)
+├── Main Thread
+│   ├── Algorithm Execution (every minute at :02)
+│   ├── Trading via Alpaca
+│   └── Market Hours Management
+├── API Server Thread
+│   ├── Flask endpoints on port 5001
+│   ├── Frontend communication
+│   └── Direct WebSocket Manager access
+└── WebSocket Thread
+    ├── Real-time data stream
+    ├── Auto-storage to database
+    └── Reference-counted subscriptions
+```
 
 ### Core Responsibilities
 1. **Execute algorithms** every minute during market hours
-2. **Manage WebSocket subscriptions** based on active algorithms
+2. **Manage WebSocket subscriptions** via WebSocketManager
 3. **Execute trades** through Alpaca and record transactions
 4. **Handle errors** without crashing (algorithm failures isolated)
+5. **Run API server** as integrated thread (NEW)
 
 ### Timing Loop
 ```python
@@ -280,17 +312,26 @@ while True:
         sleep(15 * 60)  # 15 minutes when market closed
 ```
 
-### WebSocket Management
+### WebSocket Management (`orchestra/websocket_manager.py`)
 - **Reference counting** for shared tickers
+- **Thread-safe operations** with locks
 - **Automatic subscription** on algorithm start
 - **Automatic unsubscription** when last algorithm stops
 - **Restart resilience** - restores all subscriptions on startup
+- **Direct integration** with API server thread
 
 ### Trade Execution
 ```python
 if action == 'buy':
     fill_price = alpaca_wrapper.place_market_buy(ticker, shares)
     system_db_manager.record_buy(algo_id, shares, fill_price)
+```
+
+### Single Entry Point
+```bash
+# Start everything with one command:
+python3 orchestra/orchestrator.py
+# No longer need separate API server process
 ```
 
 ## ALGORITHMS
@@ -399,7 +440,7 @@ action, shares = algo.run("2024-01-31T20:00:00Z", 1)
 ## FRONTEND
 
 **Location**: `/frontend/` directory
-**Configuration**: `config.js` sets API base URL (http://localhost:5000)
+**Configuration**: `config.js` sets API base URL (http://localhost:5001) - Note: Changed from 5000
 
 ### Display Components
 - **Algorithm cards** with colored borders (green=profit, red=loss, white=break-even)
@@ -430,9 +471,17 @@ action, shares = algo.run("2024-01-31T20:00:00Z", 1)
 
 ## ENDPOINTS (CONNECTIVITY)
 
+### WebSocket Manager (`orchestra/websocket_manager.py`)
+- **Reference Counting**: Tracks ticker usage across algorithms
+- **Thread-Safe**: Uses locks for concurrent access
+- **Auto-Subscribe**: Adds ticker when first algorithm needs it
+- **Auto-Unsubscribe**: Removes ticker when no algorithms need it
+- **Database Init**: Restores all subscriptions on startup
+
 ### API Server (`orchestra/api_server.py`)
 
-**Port**: 5000
+**Port**: 5001 (Note: Changed from original 5000)
+**Architecture**: Runs as thread inside orchestrator process
 
 **Authentication**
 - `POST /api/validate-pin` - Verify PIN for secure actions
@@ -446,14 +495,16 @@ action, shares = algo.run("2024-01-31T20:00:00Z", 1)
       "total_account_value": 50000.00
   }
   ```
-- `POST /api/algorithms` - Create new algorithm instance
-- `DELETE /api/algorithms/{id}` - Stop algorithm
+- `POST /api/algorithms` - Create new algorithm instance (triggers WebSocket subscription)
+- `DELETE /api/algorithms/{id}` - Stop algorithm (triggers WebSocket unsubscription)
 
 **System Status**
 - `GET /api/available-algorithms` - Scan `/algorithm/` directory (singular)
 - `GET /api/account/cash` - Available cash for new allocations
 - `GET /api/market-status` - Current market open/closed state
 - `GET /api/validate-ticker?symbol=NVDA` - Validate ticker for trading
+
+**WebSocket Integration**: API server has direct access to WebSocketManager instance
 
 ### Alpaca Integration (`alpaca_wrapper.py`)
 ```python
@@ -472,16 +523,28 @@ ALPACA_PAPER=True    # False for real trading
 ALPACA_FEED=iex      # 'sip' for paid tier
 ```
 
+### System Configuration
+- API Server Port: 5001 (changed from original 5000)
+- Single Process: Run `python3 orchestra/orchestrator.py` to start everything
+
 ## FULL FLOW
+
+### System Startup
+1. **Single Command**: `python3 orchestra/orchestrator.py`
+2. **API Thread**: Starts Flask server on port 5001
+3. **WebSocket Manager**: Initializes and restores subscriptions from database
+4. **Main Loop**: Begins market hours checking and algorithm execution
 
 ### Algorithm Lifecycle
 1. **Creation**: Frontend calls `/api/algorithms` with ticker, type, and capital
 2. **Registration**: System creates database entry with auto-generated ID
-3. **Execution**: Orchestrator loads algorithm module from `/algorithm/` and calls `run()` every minute
-4. **Data Access**: Algorithm fetches guaranteed market-minute data (auto-fetch if missing)
-5. **Decision**: Algorithm returns tuple: ('buy'/'sell'/'hold', shares)
-6. **Trade**: Orchestrator executes via Alpaca and records transaction
-7. **Display**: Frontend polls API and shows updated P&L
+3. **WebSocket**: API server calls `ws_manager.add_algorithm(ticker)` for real-time data
+4. **Execution**: Orchestrator loads algorithm module from `/algorithm/` and calls `run()` every minute
+5. **Data Access**: Algorithm fetches guaranteed market-minute data (auto-fetch if missing)
+6. **Decision**: Algorithm returns tuple: ('buy'/'sell'/'hold', shares)
+7. **Trade**: Orchestrator executes via Alpaca and records transaction
+8. **Stop**: When stopped, API server calls `ws_manager.remove_algorithm(ticker)`
+9. **Display**: Frontend polls API and shows updated P&L
 
 ### Data Flow
 1. **Real-time**: Alpaca WebSocket → `realtime_pull.py` → `stocks.db`

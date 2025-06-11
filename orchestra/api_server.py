@@ -4,7 +4,7 @@ API Server for AutoTrader - INTEGRATED VERSION
 Now runs as a thread within the Orchestrator for direct WebSocket Manager access
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import os
 import sys
@@ -39,6 +39,32 @@ CORS(app)  # Enable CORS for frontend access
 # Initialize components
 alpaca = AlpacaWrapper()
 calendar = MarketCalendar()
+
+# Frontend directory path
+FRONTEND_DIR = Path(__file__).parent.parent / 'frontend'
+
+# =============================================================================
+# FRONTEND SERVING ENDPOINTS
+# =============================================================================
+
+@app.route('/')
+def serve_dashboard():
+    """Serve the main dashboard page"""
+    return send_file(FRONTEND_DIR / 'dashboard.html')
+
+@app.route('/<path:filename>')
+def serve_frontend_file(filename):
+    """Serve frontend static files (CSS, JS, etc.)"""
+    # Security check - prevent directory traversal
+    if '..' in filename or filename.startswith('/'):
+        return "Invalid path", 403
+    
+    # Check if file exists
+    file_path = FRONTEND_DIR / filename
+    if file_path.exists() and file_path.is_file():
+        return send_from_directory(FRONTEND_DIR, filename)
+    else:
+        return "File not found", 404
 
 # =============================================================================
 # AUTHENTICATION ENDPOINTS
@@ -256,7 +282,7 @@ def get_available_algorithms():
                 print(f"⚠️  Couldn't load algorithm {file.stem}: {e}")
                 continue
         
-        return jsonify({'algorithms': available}), 200
+        return jsonify(available), 200
         
     except Exception as e:
         print(f"❌ Error scanning algorithms: {e}")
@@ -378,6 +404,7 @@ def run_api_server(websocket_manager, port=5001):
     print("\n" + "="*60)
     print("🚀 Starting AutoTrader API Server (Integrated Mode)")
     print("="*60)
+    print(f"🌐 Dashboard available at http://localhost:{port}/")
     print(f"📡 API endpoints available at http://localhost:{port}/api/")
     print("🔐 Make sure system PIN is set in system.db")
     print("📊 Market status:", "OPEN" if calendar.is_market_open_now() else "CLOSED")
