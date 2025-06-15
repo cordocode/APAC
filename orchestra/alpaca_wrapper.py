@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-Alpaca Wrapper
-Interface to Alpaca trading API for the AutoTrader system
+################################################################################
+# FILE: alpaca_wrapper.py
+# PURPOSE: Interface to Alpaca trading API for the AutoTrader system
+################################################################################
 """
 
 import os
 import sys
 import time
 from pathlib import Path
+from datetime import datetime
 
 # Add parent directory to path so we can import from system_databse later
 sys.path.append(str(Path(__file__).parent.parent))
@@ -21,9 +24,9 @@ from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 
 
-# =============================================================================
+################################################################################
 # ALPACA CLIENT WRAPPER
-# =============================================================================
+################################################################################
 
 class AlpacaWrapper:
     def __init__(self):
@@ -50,12 +53,12 @@ class AlpacaWrapper:
         )
         
         mode = "PAPER" if paper_trading else "**REAL**"
-        print(f"✅ Alpaca client initialized in {mode} mode with {self.data_feed} feed")
+        print(f"[{datetime.now().isoformat()}] Initialized Alpaca client")
 
 
-# =============================================================================
+################################################################################
 # ACCOUNT FUNCTIONS
-# =============================================================================
+################################################################################
 
     def get_account_cash(self) -> float:
         """
@@ -70,13 +73,13 @@ class AlpacaWrapper:
             cash = float(account.cash)
             return cash
         except Exception as e:
-            print(f"❌ Error getting account cash: {e}")
+            print(f"[{datetime.now().isoformat()}] Error getting cash")
             raise
 
 
-# =============================================================================
+################################################################################
 # VALIDATION FUNCTIONS
-# =============================================================================
+################################################################################
 
     def validate_ticker(self, symbol: str) -> bool:
         """
@@ -103,13 +106,13 @@ class AlpacaWrapper:
             
         except Exception as e:
             # If we can't find the asset, it's not valid
-            print(f"❌ Ticker validation failed for {symbol}: {e}")
+            print(f"[{datetime.now().isoformat()}] Ticker validation failed")
             return False
 
 
-# =============================================================================
+################################################################################
 # TRADING FUNCTIONS
-# =============================================================================
+################################################################################
 
     def place_market_buy(self, ticker: str, shares: int) -> float:
         """
@@ -135,7 +138,7 @@ class AlpacaWrapper:
             )
             
             # Submit order
-            print(f"📈 Submitting BUY order: {shares} shares of {ticker}")
+            print(f"[{datetime.now().isoformat()}] Submitting buy order")
             order = self.client.submit_order(order_request)
             
             # Wait for fill (market orders should fill immediately)
@@ -148,11 +151,11 @@ class AlpacaWrapper:
                 order = self.client.get_order_by_id(order.id)
                 filled_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
             
-            print(f"✅ BUY order filled at ${filled_price:.2f}")
+            print(f"[{datetime.now().isoformat()}] Buy order filled")
             return filled_price
             
         except Exception as e:
-            print(f"❌ BUY order failed for {ticker}: {e}")
+            print(f"[{datetime.now().isoformat()}] Buy order failed")
             raise
 
     def place_market_sell(self, ticker: str, shares: int) -> float:
@@ -179,7 +182,7 @@ class AlpacaWrapper:
             )
             
             # Submit order
-            print(f"📉 Submitting SELL order: {shares} shares of {ticker}")
+            print(f"[{datetime.now().isoformat()}] Submitting sell order")
             order = self.client.submit_order(order_request)
             
             # Wait for fill (market orders should fill immediately)
@@ -191,9 +194,9 @@ class AlpacaWrapper:
                 order = self.client.get_order_by_id(order.id)
                 filled_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
             
-            print(f"✅ SELL order filled at ${filled_price:.2f}")
+            print(f"[{datetime.now().isoformat()}] Sell order filled")
             return filled_price
             
         except Exception as e:
-            print(f"❌ SELL order failed for {ticker}: {e}")
+            print(f"[{datetime.now().isoformat()}] Sell order failed")
             raise

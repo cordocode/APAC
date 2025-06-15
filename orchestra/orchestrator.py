@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
-Orchestrator - Core execution engine for AutoTrader
-NOW WITH INTEGRATED API SERVER
-Manages algorithm execution, trading, WebSocket streams, AND API endpoints
+################################################################################
+# FILE: orchestrator.py
+# PURPOSE: Core execution engine for AutoTrader with integrated API server
+# CREATED: 2025-01-10
+# MODIFIED: 2025-01-10
+################################################################################
 """
 
 import sys
@@ -26,6 +29,11 @@ from orchestra.alpaca_wrapper import AlpacaWrapper
 from orchestra.websocket_manager import WebSocketManager
 from database.calendar_manager import MarketCalendar
 
+
+################################################################################
+# ORCHESTRATOR CLASS
+################################################################################
+
 class Orchestrator:
     """Main orchestrator that coordinates algorithm execution and trading"""
     
@@ -38,8 +46,8 @@ class Orchestrator:
         self.running = True
         self.last_execution = None
         self.api_thread = None  # Thread for API server
-        print("🚀 Orchestrator initialized")
-        print(f"📅 Current time: {datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        print(f"[{datetime.now().isoformat()}] Orchestrator initialized")
+        print(f"[{datetime.now().isoformat()}] Current time recorded")
         
     def load_algorithm_module(self, algo_type):
         """
@@ -59,15 +67,15 @@ class Orchestrator:
             module = importlib.import_module(module_path)
             
             if not hasattr(module, 'Algorithm'):
-                print(f"❌ Module {algo_type} missing Algorithm class")
+                print(f"[{datetime.now().isoformat()}] Module missing class")
                 return None
             
             self.loaded_modules[algo_type] = module
-            print(f"✅ Loaded algorithm module: {algo_type}")
+            print(f"[{datetime.now().isoformat()}] Loaded algorithm module")
             return module
             
         except Exception as e:
-            print(f"❌ Failed to load algorithm {algo_type}: {e}")
+            print(f"[{datetime.now().isoformat()}] Failed loading algorithm")
             return None
     
     def execute_algorithm(self, algo_data):
@@ -84,7 +92,7 @@ class Orchestrator:
         
         # Skip if previously failed
         if algo_id in self.failed_algorithms:
-            print(f"⏭️  Skipping failed algorithm: {algo_data['display_name']}")
+            print(f"[{datetime.now().isoformat()}] Skipping failed algorithm")
             return False
         
         try:
@@ -104,12 +112,12 @@ class Orchestrator:
             current_time = datetime.now(pytz.UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
             
             # Run algorithm
-            print(f"\n🤖 Running {algo_data['display_name']}")
+            print(f"[{datetime.now().isoformat()}] Running algorithm")
             action, shares = algo_instance.run(current_time, algo_id)
             
             # Validate response
             if not self._validate_algorithm_response(action, shares):
-                print(f"❌ Invalid response from algorithm: action={action}, shares={shares}")
+                print(f"[{datetime.now().isoformat()}] Invalid algorithm response")
                 return False
             
             # Execute trading decision
@@ -118,15 +126,15 @@ class Orchestrator:
             elif action == 'sell' and shares > 0:
                 self._execute_sell(algo_id, algo_data['ticker'], shares)
             else:
-                print(f"⏸️  {algo_data['ticker']}: Holding position (no action)")
+                print(f"[{datetime.now().isoformat()}] Holding position")
             
             return True
             
         except Exception as e:
-            print(f"❌ Algorithm {algo_data['display_name']} crashed: {e}")
+            print(f"[{datetime.now().isoformat()}] Algorithm crashed")
             traceback.print_exc()
             self.failed_algorithms.add(algo_id)
-            print(f"🛑 Algorithm marked as failed, holding position")
+            print(f"[{datetime.now().isoformat()}] Algorithm marked failed")
             return False
     
     def _validate_algorithm_response(self, action, shares):
@@ -140,7 +148,7 @@ class Orchestrator:
     def _execute_buy(self, algo_id, ticker, shares):
         """Execute buy order and record transaction"""
         try:
-            print(f"💰 Placing BUY order: {shares} shares of {ticker}")
+            print(f"[{datetime.now().isoformat()}] Placing buy order")
             
             # Place market buy order
             fill_price = self.alpaca.place_market_buy(ticker, shares)
@@ -148,15 +156,15 @@ class Orchestrator:
             # Record transaction
             tx_id = record_buy(algo_id, shares, fill_price)
             
-            print(f"✅ Buy executed: {shares} {ticker} @ ${fill_price:.2f} (tx_id: {tx_id})")
+            print(f"[{datetime.now().isoformat()}] Buy order executed")
             
         except Exception as e:
-            print(f"❌ Buy order failed: {e}")
+            print(f"[{datetime.now().isoformat()}] Buy order failed")
     
     def _execute_sell(self, algo_id, ticker, shares):
         """Execute sell order and record transaction"""
         try:
-            print(f"💸 Placing SELL order: {shares} shares of {ticker}")
+            print(f"[{datetime.now().isoformat()}] Placing sell order")
             
             # Place market sell order
             fill_price = self.alpaca.place_market_sell(ticker, shares)
@@ -164,25 +172,23 @@ class Orchestrator:
             # Record transaction
             tx_id = record_sell(algo_id, shares, fill_price)
             
-            print(f"✅ Sell executed: {shares} {ticker} @ ${fill_price:.2f} (tx_id: {tx_id})")
+            print(f"[{datetime.now().isoformat()}] Sell order executed")
             
         except Exception as e:
-            print(f"❌ Sell order failed: {e}")
+            print(f"[{datetime.now().isoformat()}] Sell order failed")
     
     def execute_all_algorithms(self):
         """Execute all running algorithms"""
-        print(f"\n{'='*60}")
-        print(f"⚡ Executing algorithms at {datetime.now(pytz.UTC).strftime('%H:%M:%S UTC')}")
-        print(f"{'='*60}")
+        print(f"[{datetime.now().isoformat()}] Executing algorithms")
         
         # Get all running algorithms
         running_algos = get_all_algorithms(status='running')
         
         if not running_algos:
-            print("📭 No running algorithms found")
+            print(f"[{datetime.now().isoformat()}] No algorithms found")
             return
         
-        print(f"📊 Found {len(running_algos)} running algorithms")
+        print(f"[{datetime.now().isoformat()}] Found running algorithms")
         
         # Execute each algorithm
         success_count = 0
@@ -190,12 +196,13 @@ class Orchestrator:
             if self.execute_algorithm(algo):
                 success_count += 1
         
-        print(f"\n✅ Execution complete: {success_count}/{len(running_algos)} successful")
+        print(f"[{datetime.now().isoformat()}] Execution complete")
         self.last_execution = datetime.now(pytz.UTC)
     
-    # =========================================================================
-    # API SERVER INTEGRATION
-    # =========================================================================
+
+################################################################################
+# API SERVER INTEGRATION
+################################################################################
     
     def _start_api_server(self):
         """Start the API server in a separate thread"""
@@ -203,7 +210,7 @@ class Orchestrator:
             # Import and run the API server with our WebSocket manager
             from orchestra.api_server import run_api_server
             
-            print("\n🌐 Starting integrated API server...")
+            print(f"[{datetime.now().isoformat()}] Starting API server")
             
             # Run API server in a daemon thread
             self.api_thread = threading.Thread(
@@ -217,50 +224,41 @@ class Orchestrator:
             
             # Give it a moment to start
             time.sleep(2)
-            print("✅ API server started on port 5001")
+            print(f"[{datetime.now().isoformat()}] API server started")
             
         except Exception as e:
-            print(f"❌ Failed to start API server: {e}")
+            print(f"[{datetime.now().isoformat()}] API server failed")
             traceback.print_exc()
     
-    # =========================================================================
-    # MAIN RUN LOOP
-    # =========================================================================
+
+################################################################################
+# MAIN RUN LOOP
+################################################################################
     
     def run(self):
         """Main execution loop - runs forever"""
-        print("\n🚀 Starting Orchestrator main loop")
-        print("⏰ Will execute algorithms at :02 of each minute during market hours")
-        print("🌙 Will sleep until market open when closed")
-        print("Press Ctrl+C to stop\n")
+        print(f"[{datetime.now().isoformat()}] Starting main loop")
+        print(f"[{datetime.now().isoformat()}] Execution scheduled")
+        print(f"[{datetime.now().isoformat()}] Sleep during closed")
         
-        # =====================================================================
         # START API SERVER FIRST
-        # =====================================================================
         self._start_api_server()
         
-        # =====================================================================
         # INITIALIZE WEBSOCKET MANAGER
-        # =====================================================================
-        print("\n📡 Initializing WebSocket subscriptions...")
+        print(f"[{datetime.now().isoformat()}] Initializing WebSocket")
         self.ws_manager.initialize_from_db()
         self.ws_manager.start()
-        print("✅ Real-time data stream active")
+        print(f"[{datetime.now().isoformat()}] Real-time stream active")
         
         # Show WebSocket status
         self.ws_manager.print_status()
         
-        # =====================================================================
         # SHOW SYSTEM STATUS
-        # =====================================================================
-        print("\n" + "="*60)
-        print("🎯 AUTOTRADER SYSTEM FULLY OPERATIONAL")
-        print("="*60)
-        print("✅ Orchestrator: Running")
-        print("✅ API Server: http://localhost:5001")
-        print("✅ WebSocket Stream: Active")
-        print("✅ Algorithm Execution: Every minute at :02")
-        print("="*60 + "\n")
+        print(f"[{datetime.now().isoformat()}] System operational")
+        print(f"[{datetime.now().isoformat()}] Orchestrator running")
+        print(f"[{datetime.now().isoformat()}] API server active")
+        print(f"[{datetime.now().isoformat()}] WebSocket active")
+        print(f"[{datetime.now().isoformat()}] Algorithm execution ready")
         
         last_market_state = None
         
@@ -272,9 +270,9 @@ class Orchestrator:
                 # Log market state changes
                 if market_open != last_market_state:
                     if market_open:
-                        print(f"\n🔔 MARKET OPENED at {datetime.now(pytz.UTC).strftime('%H:%M:%S UTC')}")
+                        print(f"[{datetime.now().isoformat()}] Market opened")
                     else:
-                        print(f"\n🔕 MARKET CLOSED at {datetime.now(pytz.UTC).strftime('%H:%M:%S UTC')}")
+                        print(f"[{datetime.now().isoformat()}] Market closed")
                     last_market_state = market_open
                 
                 if market_open:
@@ -288,34 +286,29 @@ class Orchestrator:
                     sleep_duration = (next_execution - datetime.now(pytz.UTC)).total_seconds()
                     
                     if sleep_duration > 0:
-                        print(f"⏱️  Next execution at {next_execution.strftime('%H:%M:%S UTC')} ({sleep_duration:.1f}s)")
+                        print(f"[{datetime.now().isoformat()}] Next execution scheduled")
                         time.sleep(sleep_duration)
                 else:
                     # Market is closed - sleep until market open
                     self._sleep_until_market_open()
                     
         except KeyboardInterrupt:
-            print("\n⏹️  Orchestrator stopped by user")
+            print(f"[{datetime.now().isoformat()}] Stopped by user")
         except Exception as e:
-            print(f"\n❌ Orchestrator crashed: {e}")
+            print(f"[{datetime.now().isoformat()}] Orchestrator crashed")
             traceback.print_exc()
         finally:
-            # =====================================================================
             # CLEAN SHUTDOWN
-            # =====================================================================
-            print("\n" + "="*60)
-            print("🛑 SHUTTING DOWN AUTOTRADER")
-            print("="*60)
+            print(f"[{datetime.now().isoformat()}] Shutting down")
             
             # Stop WebSocket stream
-            print("📡 Stopping real-time data stream...")
+            print(f"[{datetime.now().isoformat()}] Stopping data stream")
             self.ws_manager.stop()
             
             # API server will stop automatically (daemon thread)
-            print("🌐 API server stopping...")
+            print(f"[{datetime.now().isoformat()}] API server stopping")
             
-            print("\n👋 AutoTrader shutdown complete")
-            print("="*60)
+            print(f"[{datetime.now().isoformat()}] Shutdown complete")
     
     def _sleep_until_market_open(self):
         """Sleep until exactly when market opens"""
@@ -332,8 +325,8 @@ class Orchestrator:
                 hours = int(time_until_open // 3600)
                 minutes = int((time_until_open % 3600) // 60)
                 
-                print(f"😴 Market opens at {next_open.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-                print(f"😴 Sleeping for {hours}h {minutes}m until market open...")
+                print(f"[{datetime.now().isoformat()}] Market opens later")
+                print(f"[{datetime.now().isoformat()}] Sleeping until open")
                 
                 # Sleep until 10 seconds before market open
                 sleep_duration = time_until_open - 10
@@ -344,14 +337,14 @@ class Orchestrator:
                 while datetime.now(pytz.UTC) < next_open:
                     time.sleep(1)
                 
-                print(f"⏰ WAKE UP! Market opening soon!")
+                print(f"[{datetime.now().isoformat()}] Market opening soon")
             else:
                 # Market should be open but isn't? Check again in 10 seconds
-                print("⚠️  Market schedule unclear, checking again in 10s")
+                print(f"[{datetime.now().isoformat()}] Schedule unclear")
                 time.sleep(10)
         else:
             # Couldn't determine next open, check again in 60 seconds
-            print("⚠️  Cannot determine next market open, checking again in 60s")
+            print(f"[{datetime.now().isoformat()}] Cannot determine open")
             time.sleep(60)
     
     def _get_next_market_open(self):
@@ -382,25 +375,23 @@ class Orchestrator:
                         return market_open
                         
                 except Exception as e:
-                    print(f"⚠️  Error parsing schedule for {check_date}: {e}")
+                    print(f"[{datetime.now().isoformat()}] Error parsing schedule")
                     continue
         
         return None
 
-# =============================================================================
+
+################################################################################
 # MAIN ENTRY POINT
-# =============================================================================
+################################################################################
 
 def main():
     """Main entry point"""
-    print("\n" + "="*60)
-    print("🤖 AUTOTRADER INTEGRATED SYSTEM STARTING")
-    print("="*60)
-    print("📦 Components to start:")
-    print("   • Orchestrator (algorithm execution)")
-    print("   • API Server (frontend communication)")
-    print("   • WebSocket Manager (real-time data)")
-    print("="*60 + "\n")
+    print(f"[{datetime.now().isoformat()}] AutoTrader starting")
+    print(f"[{datetime.now().isoformat()}] Components initializing")
+    print(f"[{datetime.now().isoformat()}] Starting orchestrator")
+    print(f"[{datetime.now().isoformat()}] Starting API server")
+    print(f"[{datetime.now().isoformat()}] Starting WebSocket")
     
     orchestrator = Orchestrator()
     orchestrator.run()

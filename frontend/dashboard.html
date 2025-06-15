@@ -1,111 +1,117 @@
+<!--
+################################################################################
+# FILE: dashboard.html
+# PURPOSE: HTML structure for AutoTrader Dashboard interface
+################################################################################
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoTrader Dashboard</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoTrader Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <!-- Header -->
-    <header class="header">
-        <div class="position-indicators" id="positionIndicators">
-            <!-- Dots will be dynamically inserted here -->
-        </div>
-        <div class="total-value" id="totalValue">$0</div>
-    </header>
-
-    <!-- Main Cards Container -->
-    <main class="cards-container" id="cardsContainer">
-        <!-- Add Algorithm Card (Always First) -->
-        <div class="card add-card" id="addCard">
-            <div class="add-symbol">+</div>
-        </div>
-        <!-- Algorithm cards will be dynamically inserted here -->
-    </main>
-
-    <!-- PIN Pad Modal -->
-    <div class="modal-overlay" id="pinModal" style="display: none;">
-        <div class="pin-pad">
-            <div class="pin-header">
-                <span>Enter PIN</span>
-                <button class="close-btn" id="closePinModal">×</button>
-            </div>
-            <div class="pin-display">
-                <span class="pin-dot" id="pinDot1">○</span>
-                <span class="pin-dot" id="pinDot2">○</span>
-                <span class="pin-dot" id="pinDot3">○</span>
-                <span class="pin-dot" id="pinDot4">○</span>
-            </div>
-            <div class="pin-buttons">
-                <button class="pin-btn" data-digit="1">1</button>
-                <button class="pin-btn" data-digit="2">2</button>
-                <button class="pin-btn" data-digit="3">3</button>
-                <button class="pin-btn" data-digit="4">4</button>
-                <button class="pin-btn" data-digit="5">5</button>
-                <button class="pin-btn" data-digit="6">6</button>
-                <button class="pin-btn" data-digit="7">7</button>
-                <button class="pin-btn" data-digit="8">8</button>
-                <button class="pin-btn" data-digit="9">9</button>
-                <button class="pin-btn pin-btn-zero" data-digit="0">0</button>
-            </div>
-            <div class="pin-error" id="pinError" style="display: none;">Incorrect PIN</div>
-        </div>
+  <!-- Header -->
+  <header class="header">
+    <div class="position-indicators" id="positionIndicators">
+      <!-- Dots will be dynamically inserted here -->
     </div>
+    <div class="total-value" id="totalValue">$0</div>
+  </header>
 
-    <!-- Add Algorithm Modal -->
-    <div class="modal-overlay" id="addAlgorithmModal" style="display: none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Create New Algorithm</h2>
-                <button class="close-btn" id="closeAddModal">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="tickerInput">Ticker:</label>
-                    <input type="text" id="tickerInput" maxlength="10" autocomplete="off">
-                </div>
-                <div class="form-group">
-                    <label for="algorithmSelect">Algorithm:</label>
-                    <select id="algorithmSelect">
-                        <option value="">Select algorithm...</option>
-                        <!-- Options populated dynamically -->
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="allocationInput">Allocation: $</label>
-                    <input type="number" id="allocationInput" min="0" step="0.01" autocomplete="off">
-                </div>
-                <div class="available-cash">
-                    Available Cash: <span id="availableCash">$0</span>
-                </div>
-                <div class="form-error" id="formError" style="display: none;"></div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-primary" id="createAlgorithmBtn">CREATE</button>
-                <button class="btn btn-cancel" id="cancelAddBtn">CANCEL</button>
-            </div>
-        </div>
+  <!-- Main Cards Container -->
+  <main class="cards-container" id="cardsContainer">
+    <!-- Add Algorithm Card (Always First) -->
+    <div class="card add-card" id="addCard">
+      <div class="add-symbol">+</div>
     </div>
+    <!-- Algorithm cards will be dynamically inserted here -->
+  </main>
 
-    <!-- Stop Confirmation Modal -->
-    <div class="modal-overlay" id="stopConfirmModal" style="display: none;">
-        <div class="modal-content modal-confirm">
-            <div class="modal-header">
-                <h2>Confirm Stop Algorithm</h2>
-            </div>
-            <div class="modal-body">
-                <p id="stopConfirmText1">Stopping algorithm will sell all shares</p>
-                <p id="stopConfirmText2">This will realize a profit/loss</p>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-danger" id="confirmStopBtn">CONFIRM</button>
-                <button class="btn btn-cancel" id="cancelStopBtn">CANCEL</button>
-            </div>
-        </div>
+  <!-- PIN Pad Modal -->
+  <div class="modal-overlay" id="pinModal" style="display: none;">
+    <div class="pin-pad">
+      <div class="pin-header">
+        <span>Enter PIN</span>
+        <button class="close-btn" id="closePinModal">×</button>
+      </div>
+      <div class="pin-display">
+        <span class="pin-dot" id="pinDot1">○</span>
+        <span class="pin-dot" id="pinDot2">○</span>
+        <span class="pin-dot" id="pinDot3">○</span>
+        <span class="pin-dot" id="pinDot4">○</span>
+      </div>
+      <div class="pin-buttons">
+        <button class="pin-btn" data-digit="1">1</button>
+        <button class="pin-btn" data-digit="2">2</button>
+        <button class="pin-btn" data-digit="3">3</button>
+        <button class="pin-btn" data-digit="4">4</button>
+        <button class="pin-btn" data-digit="5">5</button>
+        <button class="pin-btn" data-digit="6">6</button>
+        <button class="pin-btn" data-digit="7">7</button>
+        <button class="pin-btn" data-digit="8">8</button>
+        <button class="pin-btn" data-digit="9">9</button>
+        <button class="pin-btn pin-btn-zero" data-digit="0">0</button>
+      </div>
+      <div class="pin-error" id="pinError" style="display: none;">Incorrect PIN</div>
     </div>
+  </div>
 
-    <script src="config.js"></script>
-    <script src="dashboard.js"></script>
+  <!-- Add Algorithm Modal -->
+  <div class="modal-overlay" id="addAlgorithmModal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Create New Algorithm</h2>
+        <button class="close-btn" id="closeAddModal">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="tickerInput">Ticker:</label>
+          <input type="text" id="tickerInput" maxlength="10" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="algorithmSelect">Algorithm:</label>
+          <select id="algorithmSelect">
+            <option value="">Select algorithm...</option>
+            <!-- Options populated dynamically -->
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="allocationInput">Allocation: $</label>
+          <input type="number" id="allocationInput" min="0" step="0.01" autocomplete="off">
+        </div>
+        <div class="available-cash">
+          Available Cash: <span id="availableCash">$0</span>
+        </div>
+        <div class="form-error" id="formError" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="createAlgorithmBtn">CREATE</button>
+        <button class="btn btn-cancel" id="cancelAddBtn">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stop Confirmation Modal -->
+  <div class="modal-overlay" id="stopConfirmModal" style="display: none;">
+    <div class="modal-content modal-confirm">
+      <div class="modal-header">
+        <h2>Confirm Stop Algorithm</h2>
+      </div>
+      <div class="modal-body">
+        <p id="stopConfirmText1">Stopping algorithm will sell all shares</p>
+        <p id="stopConfirmText2">This will realize a profit/loss</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" id="confirmStopBtn">CONFIRM</button>
+        <button class="btn btn-cancel" id="cancelStopBtn">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="dashboard.js"></script>
 </body>
 </html>

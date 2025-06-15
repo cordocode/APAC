@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """
-Create the system.db database with initial schema
-Run this once to set up the database structure
+################################################################################
+# FILE: create_system_db.py
+# PURPOSE: Create the system.db database with initial schema
+################################################################################
 """
 
 import sqlite3
 import os
+from datetime import datetime
+
+
+################################################################################
+# DATABASE CREATION
+################################################################################
 
 def create_system_database():
     """Create system.db with complete schema"""
@@ -69,22 +77,23 @@ def create_system_database():
         # Commit all changes
         conn.commit()
         
-        print(f"✅ Database created successfully at: {db_path}")
-        print("✅ Tables created: algorithm_instances, transactions, system_config")
-        print("✅ Default PIN set to: 2020")
+        print(f"[{datetime.now().isoformat()}] Database created successfully")
+        print(f"[{datetime.now().isoformat()}] Tables created")
+        print(f"[{datetime.now().isoformat()}] Default PIN set")
         
         # Verify the schema by listing tables
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = cursor.fetchall()
-        print(f"✅ Tables found: {[table[0] for table in tables]}")
+        print(f"[{datetime.now().isoformat()}] Tables verified")
         
     except Exception as e:
-        print(f"❌ Error creating database: {e}")
+        print(f"[{datetime.now().isoformat()}] Database creation failed")
         conn.rollback()
         raise
     
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     create_system_database()

@@ -1,7 +1,8 @@
-#!/usr/bin/env python3
 """
-Historical Data Fetcher - Production Version
-Fetches historical minute bars from Alpaca and stores in database
+################################################################################
+# FILE: historical_pull.py
+# PURPOSE: Historical data fetcher that pulls minute bars from Alpaca API
+################################################################################
 """
 
 import os
@@ -12,13 +13,23 @@ from alpaca.data.timeframe import TimeFrame
 from datetime import datetime
 import pytz
 from typing import Dict
+import logging
 
 # Load environment variables
 load_dotenv()
 
-#==============================================================================
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%SZ'
+)
+logger = logging.getLogger(__name__)
+
+
+################################################################################
 # HISTORICAL DATA FETCHER CLASS
-#==============================================================================
+################################################################################
 
 class HistoricalFetcher:
     """
@@ -34,11 +45,12 @@ class HistoricalFetcher:
         self.eastern = pytz.timezone('US/Eastern')
         self.utc = pytz.UTC
         
-        print("✅ Historical data fetcher initialized")
+        print(f"[{datetime.now().isoformat()}] Historical fetcher initialized")
 
-#==============================================================================
+
+################################################################################
 # CORE FETCHING FUNCTIONALITY
-#==============================================================================
+################################################################################
 
     def fetch_and_store(self, ticker: str, start_date: str, end_date: str) -> Dict:
         """
@@ -52,7 +64,7 @@ class HistoricalFetcher:
         Returns:
             Dict with fetch status and details
         """
-        print(f"🔍 Fetching {ticker} from {start_date} to {end_date}")
+        print(f"[{datetime.now().isoformat()}] Fetching historical data")
         
         # Fetch from Alpaca API
         try:
@@ -73,7 +85,7 @@ class HistoricalFetcher:
                 feed=os.getenv('ALPACA_FEED', 'iex')
             )
             
-            print(f"📡 Requesting data from Alpaca API...")
+            print(f"[{datetime.now().isoformat()}] Requesting Alpaca data")
             bars = self.client.get_stock_bars(request_params)
             
             # Convert Alpaca response to our format
@@ -82,7 +94,7 @@ class HistoricalFetcher:
             try:
                 ticker_bars = list(bars[ticker])
                 if ticker_bars:
-                    print(f"📥 Received {len(ticker_bars)} bars from Alpaca")
+                    print(f"[{datetime.now().isoformat()}] Received data bars")
 
                     self.stored_count = 0
                     self.orphaned_bars = []
@@ -118,7 +130,7 @@ class HistoricalFetcher:
                         "date_range": f"{start_date} to {end_date}"
                     }
                 else:
-                    print(f"⚠️  No data returned for {ticker} from {start_date} to {end_date}")
+                    print(f"[{datetime.now().isoformat()}] No data returned")
                     return {
                         "status": "no_data", 
                         "rows_updated": 0,
@@ -127,7 +139,7 @@ class HistoricalFetcher:
                     }
                     
             except (KeyError, IndexError) as e:
-                print(f"⚠️  No data returned for {ticker}: {e}")
+                print(f"[{datetime.now().isoformat()}] Data retrieval error")
                 return {
                     "status": "no_data", 
                     "rows_updated": 0,
@@ -136,7 +148,7 @@ class HistoricalFetcher:
                 }
                 
         except Exception as e:
-            print(f"❌ Error fetching data from Alpaca: {e}")
+            print(f"[{datetime.now().isoformat()}] Alpaca fetch error")
             return {
                 "status": "error", 
                 "error": str(e),
@@ -144,9 +156,10 @@ class HistoricalFetcher:
                 "data_points": 0
             }
 
-#==============================================================================
+
+################################################################################
 # UTILITY FUNCTIONS
-#==============================================================================
+################################################################################
 
     def fetch_multiple_tickers(self, tickers: list, start_date: str, end_date: str) -> Dict:
         """
@@ -160,11 +173,11 @@ class HistoricalFetcher:
         Returns:
             Dict with results for each ticker
         """
-        print(f"🔄 Fetching historical data for {len(tickers)} tickers...")
+        print(f"[{datetime.now().isoformat()}] Batch fetch started")
         
         results = {}
         for i, ticker in enumerate(tickers, 1):
-            print(f"\n📊 Processing ticker {i}/{len(tickers)}: {ticker}")
+            print(f"\n[{datetime.now().isoformat()}] Processing ticker batch")
             
             try:
                 result = self.fetch_and_store(ticker, start_date, end_date)
@@ -175,7 +188,7 @@ class HistoricalFetcher:
                 time.sleep(0.1)
                 
             except Exception as e:
-                print(f"❌ Failed to fetch {ticker}: {e}")
+                print(f"[{datetime.now().isoformat()}] Ticker fetch failed")
                 results[ticker] = {
                     "status": "error",
                     "error": str(e),
@@ -187,9 +200,9 @@ class HistoricalFetcher:
         successful = sum(1 for r in results.values() if r['status'] == 'fetched')
         total_rows = sum(r.get('rows_updated', 0) for r in results.values())
         
-        print(f"\n🎉 Batch fetch complete:")
-        print(f"✅ Successful: {successful}/{len(tickers)} tickers")
-        print(f"📊 Total rows updated: {total_rows:,}")
+        print(f"\n[{datetime.now().isoformat()}] Batch fetch complete")
+        print(f"[{datetime.now().isoformat()}] Fetch summary calculated")
+        print(f"[{datetime.now().isoformat()}] Total rows updated")
         
         return {
             "summary": {

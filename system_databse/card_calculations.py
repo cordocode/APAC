@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Card Calculations
-Functions to calculate display values for frontend algorithm cards
+################################################################################
+# FILE: card_calculations.py
+# PURPOSE: Functions to calculate display values for frontend algorithm cards
+################################################################################
 """
 
 from system_databse import system_db_manager
 from typing import Optional, Dict, Any
 
 
-# =============================================================================
+################################################################################
 # POSITION CALCULATIONS
-# =============================================================================
+################################################################################
 
 def calculate_position(algo_id: int) -> int:
     """Calculate current shares from transaction history"""
@@ -31,6 +33,7 @@ def calculate_position(algo_id: int) -> int:
     # Handle case where no transactions exist yet
     return result[0] if result[0] is not None else 0
 
+
 def calculate_trade_count(algo_id: int) -> int:
     """Calculate total number of transactions"""
     conn = system_db_manager.get_connection()
@@ -46,9 +49,9 @@ def calculate_trade_count(algo_id: int) -> int:
     return result[0]
 
 
-# =============================================================================
-# P&L CALCULATIONS  
-# =============================================================================
+################################################################################
+# P&L CALCULATIONS
+################################################################################
 
 def calculate_invested_amount(algo_id: int) -> float:
     """Calculate how much cash is currently invested (buy_cost - sell_proceeds)"""
@@ -67,6 +70,7 @@ def calculate_invested_amount(algo_id: int) -> float:
     
     return result[0] if result[0] is not None else 0.0
 
+
 def calculate_current_value(algo_id: int, current_price: float, initial_capital: float) -> float:
     """Calculate current total value of the algorithm's position"""
     current_shares = calculate_position(algo_id)
@@ -78,14 +82,15 @@ def calculate_current_value(algo_id: int, current_price: float, initial_capital:
     
     return current_value
 
+
 def calculate_pnl(current_value: float, initial_capital: float) -> float:
     """Calculate profit/loss"""
     return current_value - initial_capital
 
 
-# =============================================================================
+################################################################################
 # COMPLETE CARD DATA
-# =============================================================================
+################################################################################
 
 def get_algorithm_with_calculations(algo_id: int, current_price: float) -> Optional[Dict[str, Any]]:
     """Get algorithm with all calculated fields for frontend display"""

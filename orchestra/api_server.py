@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-API Server for AutoTrader - INTEGRATED VERSION
-Now runs as a thread within the Orchestrator for direct WebSocket Manager access
+################################################################################
+# FILE: api_server.py
+# PURPOSE: API Server for AutoTrader - runs as thread within Orchestrator
+################################################################################
 """
 
 from flask import Flask, request, jsonify, send_from_directory, send_file
@@ -27,9 +29,10 @@ from orchestra.alpaca_wrapper import AlpacaWrapper
 from database.calendar_manager import MarketCalendar
 from database.db_manager import get_latest_price
 
-# =============================================================================
+
+################################################################################
 # GLOBAL VARIABLES - SET BY ORCHESTRATOR
-# =============================================================================
+################################################################################
 
 # These will be set when run_api_server() is called
 ws_manager = None  # WebSocket Manager instance from orchestrator
@@ -43,9 +46,10 @@ calendar = MarketCalendar()
 # Frontend directory path
 FRONTEND_DIR = Path(__file__).parent.parent / 'frontend'
 
-# =============================================================================
+
+################################################################################
 # FRONTEND SERVING ENDPOINTS
-# =============================================================================
+################################################################################
 
 @app.route('/')
 def serve_dashboard():
@@ -66,9 +70,10 @@ def serve_frontend_file(filename):
     else:
         return "File not found", 404
 
-# =============================================================================
+
+################################################################################
 # AUTHENTICATION ENDPOINTS
-# =============================================================================
+################################################################################
 
 @app.route('/api/validate-pin', methods=['POST'])
 def validate_pin():
@@ -86,12 +91,13 @@ def validate_pin():
             return jsonify({'valid': False}), 200
             
     except Exception as e:
-        print(f"❌ Error validating PIN: {e}")
+        print(f"[{datetime.now().isoformat()}] Error validating PIN")
         return jsonify({'error': str(e)}), 500
 
-# =============================================================================
-# ALGORITHM MANAGEMENT ENDPOINTS - NOW WITH WEBSOCKET INTEGRATION
-# =============================================================================
+
+################################################################################
+# ALGORITHM MANAGEMENT ENDPOINTS - WITH WEBSOCKET INTEGRATION
+################################################################################
 
 @app.route('/api/algorithms', methods=['GET'])
 def get_algorithms():
@@ -137,7 +143,7 @@ def get_algorithms():
                     
                     algorithm_cards.append(card_data)
             except Exception as e:
-                print(f"❌ Error calculating card for algo {algo['id']}: {e}")
+                print(f"[{datetime.now().isoformat()}] Error calculating card")
                 # Skip this algorithm if calculation fails
                 continue
         
@@ -157,13 +163,13 @@ def get_algorithms():
         }), 200
         
     except Exception as e:
-        print(f"❌ Error getting algorithms: {e}")
+        print(f"[{datetime.now().isoformat()}] Error getting algorithms")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/algorithms', methods=['POST'])
 def create_algorithm_endpoint():
-    """Create a new algorithm instance - NOW WITH REAL-TIME DATA"""
+    """Create a new algorithm instance - WITH REAL-TIME DATA"""
     try:
         data = request.json
         ticker = data.get('ticker', '').upper()
@@ -193,14 +199,12 @@ def create_algorithm_endpoint():
         # Create algorithm in database
         algo_id = create_algorithm(ticker, algo_type, initial_capital)
         
-        # =====================================================================
         # WEBSOCKET INTEGRATION - Subscribe to real-time data immediately
-        # =====================================================================
         if ws_manager:
-            print(f"🔌 API: Adding {ticker} to WebSocket subscriptions")
+            print(f"[{datetime.now().isoformat()}] Adding websocket subscription")
             ws_manager.add_algorithm(ticker)
         else:
-            print("⚠️  WebSocket Manager not available - running in standalone mode")
+            print(f"[{datetime.now().isoformat()}] WebSocket unavailable")
         
         # Get the created algorithm
         algorithm = get_algorithm(algo_id)
@@ -211,13 +215,13 @@ def create_algorithm_endpoint():
         }), 201
         
     except Exception as e:
-        print(f"❌ Error creating algorithm: {e}")
+        print(f"[{datetime.now().isoformat()}] Error creating algorithm")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/algorithms/<int:algo_id>', methods=['DELETE'])
 def stop_algorithm_endpoint(algo_id):
-    """Stop a running algorithm - NOW UNSUBSCRIBES FROM REAL-TIME DATA"""
+    """Stop a running algorithm - UNSUBSCRIBES FROM REAL-TIME DATA"""
     try:
         # Get algorithm info BEFORE stopping (need ticker for unsubscribe)
         algo_data = get_algorithm(algo_id)
@@ -230,26 +234,25 @@ def stop_algorithm_endpoint(algo_id):
         success = stop_algorithm(algo_id)
         
         if success:
-            # =====================================================================
             # WEBSOCKET INTEGRATION - Unsubscribe from real-time data
-            # =====================================================================
             if ws_manager:
-                print(f"🔌 API: Removing {ticker} from WebSocket subscriptions")
+                print(f"[{datetime.now().isoformat()}] Removing websocket subscription")
                 ws_manager.remove_algorithm(ticker)
             else:
-                print("⚠️  WebSocket Manager not available - running in standalone mode")
+                print(f"[{datetime.now().isoformat()}] WebSocket unavailable")
             
             return jsonify({'success': True}), 200
         else:
             return jsonify({'error': 'Algorithm not found or already stopped'}), 404
             
     except Exception as e:
-        print(f"❌ Error stopping algorithm: {e}")
+        print(f"[{datetime.now().isoformat()}] Error stopping algorithm")
         return jsonify({'error': str(e)}), 500
 
-# =============================================================================
+
+################################################################################
 # SYSTEM STATUS ENDPOINTS
-# =============================================================================
+################################################################################
 
 @app.route('/api/available-algorithms', methods=['GET'])
 def get_available_algorithms():
@@ -258,22 +261,22 @@ def get_available_algorithms():
         # Path to algorithm directory (singular!)
         algo_dir = Path(__file__).parent.parent / 'algorithm'
         
-        print(f"📂 Scanning algorithm directory: {algo_dir}")
+        print(f"[{datetime.now().isoformat()}] Scanning algorithm directory")
         
         if not algo_dir.exists():
-            print(f"❌ Algorithm directory does not exist: {algo_dir}")
+            print(f"[{datetime.now().isoformat()}] Algorithm directory missing")
             return jsonify([]), 200
         
         # Find all .py files
         available = []
         py_files = list(algo_dir.glob('*.py'))
-        print(f"📄 Found {len(py_files)} Python files in algorithm directory")
+        print(f"[{datetime.now().isoformat()}] Found Python files")
         
         for file in py_files:
-            print(f"  - Checking file: {file.name}")
+            print(f"[{datetime.now().isoformat()}] Checking file")
             
             if file.stem.startswith('_') or file.stem.startswith('__'):
-                print(f"    ⏭️  Skipping {file.stem} (private file)")
+                print(f"[{datetime.now().isoformat()}] Skipping private file")
                 continue
                 
             # Try to load the module and check if it has Algorithm class
@@ -287,18 +290,18 @@ def get_available_algorithms():
                         'type': file.stem,
                         'name': file.stem.replace('_', ' ').title()
                     })
-                    print(f"    ✅ Added algorithm: {file.stem}")
+                    print(f"[{datetime.now().isoformat()}] Added algorithm")
                 else:
-                    print(f"    ❌ No Algorithm class found in {file.stem}")
+                    print(f"[{datetime.now().isoformat()}] No Algorithm class")
             except Exception as e:
-                print(f"    ⚠️  Couldn't load algorithm {file.stem}: {e}")
+                print(f"[{datetime.now().isoformat()}] Module load failed")
                 continue
         
-        print(f"📊 Returning {len(available)} available algorithms")
+        print(f"[{datetime.now().isoformat()}] Returning algorithms")
         return jsonify(available), 200
         
     except Exception as e:
-        print(f"❌ Error scanning algorithms: {e}")
+        print(f"[{datetime.now().isoformat()}] Error scanning algorithms")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/account/cash', methods=['GET'])
@@ -314,7 +317,7 @@ def get_account_cash():
         }), 200
         
     except Exception as e:
-        print(f"❌ Error getting account cash: {e}")
+        print(f"[{datetime.now().isoformat()}] Error getting cash")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/validate-ticker', methods=['GET'])
@@ -332,7 +335,7 @@ def validate_ticker_endpoint():
         return jsonify({'valid': is_valid}), 200
         
     except Exception as e:
-        print(f"❌ Error validating ticker: {e}")
+        print(f"[{datetime.now().isoformat()}] Error validating ticker")
         return jsonify({'valid': False, 'error': str(e)}), 500
 
 @app.route('/api/market-status', methods=['GET'])
@@ -368,12 +371,13 @@ def get_market_status():
         }), 200
         
     except Exception as e:
-        print(f"❌ Error getting market status: {e}")
+        print(f"[{datetime.now().isoformat()}] Error getting status")
         return jsonify({'error': str(e)}), 500
 
-# =============================================================================
+
+################################################################################
 # HELPER FUNCTIONS
-# =============================================================================
+################################################################################
 
 def _calculate_available_cash():
     """Calculate cash available for new algorithm allocations"""
@@ -389,18 +393,20 @@ def _calculate_available_cash():
     # Available = Total - Allocated
     return total_cash - allocated
 
-# =============================================================================
+
+################################################################################
 # HEALTH CHECK
-# =============================================================================
+################################################################################
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Simple health check endpoint"""
     return jsonify({'status': 'healthy'}), 200
 
-# =============================================================================
-# ORCHESTRATOR INTEGRATION - NEW ENTRY POINT
-# =============================================================================
+
+################################################################################
+# ORCHESTRATOR INTEGRATION - ENTRY POINT
+################################################################################
 
 def run_api_server(websocket_manager, port=5001):
     """
@@ -414,27 +420,13 @@ def run_api_server(websocket_manager, port=5001):
     global ws_manager
     ws_manager = websocket_manager
     
-    print("\n" + "="*60)
-    print("🚀 Starting AutoTrader API Server (Integrated Mode)")
-    print("="*60)
-    print(f"🌐 Dashboard available at http://localhost:{port}/")
-    print(f"📡 API endpoints available at http://localhost:{port}/api/")
-    print("🔐 Make sure system PIN is set in system.db")
-    print("📊 Market status:", "OPEN" if calendar.is_market_open_now() else "CLOSED")
-    print("🔌 WebSocket Manager:", "Connected" if ws_manager else "Not Available")
-    print("="*60 + "\n")
+    print(f"[{datetime.now().isoformat()}] Starting API server")
+    print(f"[{datetime.now().isoformat()}] Dashboard available")
+    print(f"[{datetime.now().isoformat()}] API endpoints available")
+    print(f"[{datetime.now().isoformat()}] Check system PIN")
+    print(f"[{datetime.now().isoformat()}] Market status checked")
+    print(f"[{datetime.now().isoformat()}] WebSocket status checked")
     
     # Run Flask app
     # Use threaded=False since we're already in a thread
     app.run(host='0.0.0.0', port=port, debug=False, threaded=False)
-
-# =============================================================================
-# STANDALONE MODE (for testing)
-# =============================================================================
-
-if __name__ == '__main__':
-    print("\n⚠️  Running API Server in STANDALONE mode")
-    print("⚠️  WebSocket integration will NOT be available")
-    print("⚠️  For production, run via orchestrator.py\n")
-    
-    run_api_server(None, port=5001)

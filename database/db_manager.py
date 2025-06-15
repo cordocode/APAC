@@ -1,7 +1,8 @@
-#!/usr/bin/env python3
 """
-Database Manager - Clean Production Version
-Handles all stock price database operations with market-hours-only structure
+################################################################################
+# FILE: db_manager.py
+# PURPOSE: Database manager for stock price operations with market-hours-only structure
+################################################################################
 """
 
 import sqlite3
@@ -9,17 +10,27 @@ import json
 from datetime import datetime, timedelta
 import pytz
 from typing import List, Dict, Optional
+import logging
 
-#==============================================================================
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%SZ'
+)
+logger = logging.getLogger(__name__)
+
+
+################################################################################
 # DATABASE INITIALIZATION
-#==============================================================================
+################################################################################
 
 def initialize_database():
     """
     Creates the market-hours-only stock_prices table using Alpaca Calendar API.
     Only contains valid market minutes from 2018-2028, no weekends/holidays.
     """
-    print("🔄 Initializing database with market hours only...")
+    print(f"[{datetime.now().isoformat()}] Initializing database")
     
     # Import calendar manager
     from calendar_manager import MarketCalendar
@@ -37,7 +48,7 @@ def initialize_database():
     # Check if table is already populated
     cursor.execute('SELECT COUNT(*) FROM stock_prices')
     if cursor.fetchone()[0] > 0:
-        print("✅ Database already initialized")
+        print(f"[{datetime.now().isoformat()}] Database already initialized")
         conn.close()
         return
     
@@ -46,7 +57,7 @@ def initialize_database():
     market_minutes = calendar.generate_all_market_minutes(2018, 2028)
     
     # Insert all valid market minutes
-    print(f"📥 Inserting {len(market_minutes):,} market minutes into database...")
+    print(f"[{datetime.now().isoformat()}] Inserting market minutes")
     cursor.executemany(
         'INSERT INTO stock_prices (minute_timestamp) VALUES (?)',
         [(minute,) for minute in market_minutes]
@@ -55,12 +66,13 @@ def initialize_database():
     conn.commit()
     conn.close()
     
-    print(f"✅ Database initialized with {len(market_minutes):,} market-only timestamps")
-    print("🎯 Every row is guaranteed to be a valid market minute")
+    print(f"[{datetime.now().isoformat()}] Database initialized successfully")
+    print(f"[{datetime.now().isoformat()}] Market minutes validated")
 
-#==============================================================================
+
+################################################################################
 # TICKER MANAGEMENT
-#==============================================================================
+################################################################################
 
 def add_ticker_if_missing(ticker: str):
     """
@@ -90,17 +102,18 @@ def add_ticker_if_missing(ticker: str):
             alter_query = f"ALTER TABLE stock_prices ADD COLUMN {ticker} TEXT"
             cursor.execute(alter_query)
             conn.commit()
-            print(f"✅ Added column for ticker: {ticker}")
+            print(f"[{datetime.now().isoformat()}] Added ticker column")
             
     except Exception as e:
-        print(f"❌ Error in add_ticker_if_missing: {e}")
+        print(f"[{datetime.now().isoformat()}] Ticker add error")
         raise
     finally:
         conn.close()
 
-#==============================================================================
+
+################################################################################
 # DATA WRITING FUNCTIONS
-#==============================================================================
+################################################################################
 
 def insert_minute_data(ticker: str, timestamp: str, ohlcv_dict: Dict):
     """
@@ -128,7 +141,7 @@ def insert_minute_data(ticker: str, timestamp: str, ohlcv_dict: Dict):
         return cursor.rowcount
         
     except Exception as e:
-        print(f"❌ Error inserting data: {e}")
+        print(f"[{datetime.now().isoformat()}] Data insert error")
         conn.rollback()
         raise
     finally:
@@ -168,19 +181,20 @@ def insert_historical_data(ticker: str, data_array: List[Dict]):
         rows_updated = cursor.rowcount
         conn.commit()
         
-        print(f"📥 Bulk updated {rows_updated} rows for {ticker}")
+        print(f"[{datetime.now().isoformat()}] Bulk data updated")
         return rows_updated
         
     except Exception as e:
-        print(f"❌ Error in bulk insert: {e}")
+        print(f"[{datetime.now().isoformat()}] Bulk insert error")
         conn.rollback()
         raise
     finally:
         conn.close()
 
-#==============================================================================
+
+################################################################################
 # DATA READING FUNCTIONS
-#==============================================================================
+################################################################################
 
 def get_latest_price(ticker: str) -> Optional[Dict]:
     """
@@ -221,14 +235,15 @@ def get_latest_price(ticker: str) -> Optional[Dict]:
             return None
             
     except Exception as e:
-        print(f"❌ Error getting latest price: {e}")
+        print(f"[{datetime.now().isoformat()}] Price retrieval error")
         raise
     finally:
         conn.close()
 
-#==============================================================================
-# ALGORITHM DATA INTERFACE - FIXED VERSION
-#==============================================================================
+
+################################################################################
+# ALGORITHM DATA INTERFACE
+################################################################################
 
 def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List[Dict]:
     """
@@ -254,7 +269,7 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         if before_timestamp is None:
             before_timestamp = datetime.now(pytz.UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
         
-        print(f"🔍 Getting last {n} bars for {ticker} before {before_timestamp}")
+        print(f"[{datetime.now().isoformat()}] Getting price bars")
         
         conn = sqlite3.connect('database/stocks.db')
         cursor = conn.cursor()
@@ -272,7 +287,7 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         timestamp_rows = cursor.fetchall()
         
         if not timestamp_rows:
-            print(f"❌ No timestamps found before {before_timestamp}")
+            print(f"[{datetime.now().isoformat()}] No timestamps found")
             conn.close()
             return []
         
@@ -281,7 +296,7 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         newest_timestamp = timestamps[0]
         oldest_timestamp = timestamps[-1]
         
-        print(f"📍 Target range: {oldest_timestamp} to {newest_timestamp}")
+        print(f"[{datetime.now().isoformat()}] Target range identified")
         
         # Step 2: Check which of these timestamps have data
         placeholders = ','.join(['?' for _ in timestamps])
@@ -298,11 +313,11 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         non_null_count = sum(1 for row in data_rows if row[1] is not None)
         null_count = len(timestamps) - non_null_count
         
-        print(f"📊 Data check: {non_null_count} bars with data, {null_count} missing")
+        print(f"[{datetime.now().isoformat()}] Data availability checked")
         
         # Step 3: If ANY data is missing, fetch it
         if null_count > 0 or non_null_count < n:
-            print(f"❌ Missing {null_count} data points in the most recent {n} bars")
+            print(f"[{datetime.now().isoformat()}] Missing data detected")
             
             # Calculate date range to fetch
             fetch_start_date = oldest_timestamp[:10]
@@ -314,14 +329,14 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
                 fetch_start_dt = datetime.strptime(fetch_start_date, '%Y-%m-%d') - timedelta(days=1)
                 fetch_start_date = fetch_start_dt.strftime('%Y-%m-%d')
             
-            print(f"📥 Fetching data from {fetch_start_date} to {fetch_end_date}")
+            print(f"[{datetime.now().isoformat()}] Fetching missing data")
             
             conn.close()  # Close before fetching
             
             from database.historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             result = fetcher.fetch_and_store(ticker, fetch_start_date, fetch_end_date)
-            print(f"✅ Fetch result: {result}")
+            print(f"[{datetime.now().isoformat()}] Fetch operation completed")
             
             # Reconnect after fetch
             conn = sqlite3.connect('database/stocks.db')
@@ -348,9 +363,9 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
                 results.append({"timestamp": timestamp, "ohlcv": ohlcv})
         
         if results:
-            print(f"✅ Returning {len(results)} bars from {results[0]['timestamp']} to {results[-1]['timestamp']}")
+            print(f"[{datetime.now().isoformat()}] Returning price data")
         else:
-            print(f"⚠️  No data found after fetch attempt")
+            print(f"[{datetime.now().isoformat()}] No data available")
         
         return results
         
@@ -358,7 +373,7 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         start = kwargs['start']
         end = kwargs['end']
         
-        print(f"🔍 Getting time range data for {ticker}: {start} to {end}")
+        print(f"[{datetime.now().isoformat()}] Getting time range")
         
         # Simple range query - non-market times don't exist in DB
         conn = sqlite3.connect('database/stocks.db')
@@ -387,7 +402,7 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         conn.close()
         
         if len(rows) < expected_count:
-            print(f"📥 Missing data: have {len(rows)}, expected {expected_count}")
+            print(f"[{datetime.now().isoformat()}] Missing data detected")
             
             # Fetch missing data for the date range
             start_date = start[:10]
@@ -396,9 +411,9 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
             from database.historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             
-            print(f"🔄 Fetching missing {ticker} data from {start_date} to {end_date}")
+            print(f"[{datetime.now().isoformat()}] Fetching missing data")
             result = fetcher.fetch_and_store(ticker, start_date, end_date)
-            print(f"✅ Fetch result: {result}")
+            print(f"[{datetime.now().isoformat()}] Fetch operation completed")
             
             # Re-query after fetch
             conn = sqlite3.connect('database/stocks.db')
@@ -414,15 +429,16 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
             ohlcv = json.loads(json_data)
             results.append({"timestamp": timestamp, "ohlcv": ohlcv})
         
-        print(f"📊 Returning {len(results)} bars for time range")
+        print(f"[{datetime.now().isoformat()}] Returning time range")
         return results
     
     else:
         raise ValueError(f"Unknown requirement type: {requirement_type}")
 
-#==============================================================================
+
+################################################################################
 # DATABASE UTILITIES
-#==============================================================================
+################################################################################
 
 def get_database_stats() -> Dict:
     """
@@ -468,7 +484,7 @@ def get_database_stats() -> Dict:
         }
         
     except Exception as e:
-        print(f"❌ Error getting database stats: {e}")
+        print(f"[{datetime.now().isoformat()}] Database stats error")
         raise
     finally:
         conn.close()

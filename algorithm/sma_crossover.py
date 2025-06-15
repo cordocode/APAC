@@ -1,3 +1,10 @@
+"""
+################################################################################
+# FILE: sma_crossover.py
+# PURPOSE: Simple Moving Average crossover trading algorithm
+################################################################################
+"""
+
 from database.db_manager import get_data_for_algorithm
 from system_databse.system_db_manager import get_transactions
 from datetime import datetime, timezone
@@ -5,8 +12,17 @@ import json
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%SZ'
+)
 logger = logging.getLogger(__name__)
+
+
+################################################################################
+# MAIN ALGORITHM CLASS
+################################################################################
 
 class Algorithm:
     """
@@ -43,13 +59,13 @@ class Algorithm:
             )
             
             if not bars or len(bars) < self.sma_long + 1:
-                logger.warning(f"Insufficient data for {self.ticker}. Need {self.sma_long + 1} bars, got {len(bars) if bars else 0}")
+                logger.warning(f"[{datetime.now().isoformat()}] Insufficient data received")
                 return ('hold', 0)
             
             # Debug: Check what we actually got
-            logger.info(f"Got {len(bars)} bars")
-            logger.info(f"First bar: {bars[0]}")
-            logger.info(f"Last bar: {bars[-1]}")
+            logger.info(f"[{datetime.now().isoformat()}] Received data bars")
+            logger.info(f"[{datetime.now().isoformat()}] Processing bar data")
+            logger.info(f"[{datetime.now().isoformat()}] Validating bar data")
             
             # Parse OHLCV data and extract close prices
             close_prices = []
@@ -57,11 +73,11 @@ class Algorithm:
                 if 'ohlcv' in bar and bar['ohlcv']:
                     close_prices.append(bar['ohlcv']['c'])
                 else:
-                    logger.warning(f"Missing ohlcv data for timestamp {bar.get('timestamp', 'unknown')}")
+                    logger.warning(f"[{datetime.now().isoformat()}] Missing OHLCV data")
                     return ('hold', 0)
             
-            logger.info(f"Successfully parsed {len(close_prices)} close prices")
-            logger.info(f"Price range: ${min(close_prices):.2f} - ${max(close_prices):.2f}")
+            logger.info(f"[{datetime.now().isoformat()}] Parsed price data")
+            logger.info(f"[{datetime.now().isoformat()}] Calculated price range")
             
             # Calculate SMAs
             current_short_sma = sum(close_prices[-self.sma_short:]) / self.sma_short
@@ -71,8 +87,8 @@ class Algorithm:
             prev_short_sma = sum(close_prices[-self.sma_short-1:-1]) / self.sma_short
             prev_long_sma = sum(close_prices[-self.sma_long-1:-1]) / self.sma_long
             
-            logger.info(f"Current SMAs - Short: ${current_short_sma:.2f}, Long: ${current_long_sma:.2f}")
-            logger.info(f"Previous SMAs - Short: ${prev_short_sma:.2f}, Long: ${prev_long_sma:.2f}")
+            logger.info(f"[{datetime.now().isoformat()}] Calculated current SMAs")
+            logger.info(f"[{datetime.now().isoformat()}] Calculated previous SMAs")
             
             # Get current position from transaction history
             transactions = get_transactions(algo_id)
@@ -88,34 +104,39 @@ class Algorithm:
             # Detect crossovers and make trading decisions
             if prev_short_sma <= prev_long_sma and current_short_sma > current_long_sma:
                 # Golden cross - bullish signal
-                logger.info("Golden cross detected!")
+                logger.info(f"[{datetime.now().isoformat()}] Golden cross detected")
                 if current_shares == 0 and available_cash > current_price:
                     # Calculate how many shares we can buy with available cash
                     shares_to_buy = int(available_cash * 0.95 / current_price)  # Use 95% to leave buffer
                     if shares_to_buy > 0:
-                        logger.info(f"Golden cross detected for {self.ticker}. Buying {shares_to_buy} shares at ~${current_price:.2f}")
+                        logger.info(f"[{datetime.now().isoformat()}] Generating buy signal")
                         return ('buy', shares_to_buy)
                 else:
-                    logger.info(f"Golden cross but can't buy - shares: {current_shares}, cash: ${available_cash:.2f}")
+                    logger.info(f"[{datetime.now().isoformat()}] Insufficient resources")
                         
             elif prev_short_sma >= prev_long_sma and current_short_sma < current_long_sma:
                 # Death cross - bearish signal
-                logger.info("Death cross detected!")
+                logger.info(f"[{datetime.now().isoformat()}] Death cross detected")
                 if current_shares > 0:
-                    logger.info(f"Death cross detected for {self.ticker}. Selling all {current_shares} shares at ~${current_price:.2f}")
+                    logger.info(f"[{datetime.now().isoformat()}] Generating sell signal")
                     return ('sell', current_shares)
                 else:
-                    logger.info("Death cross but no shares to sell")
+                    logger.info(f"[{datetime.now().isoformat()}] No position available")
             
             # No action needed
-            logger.info("No crossover detected - holding")
+            logger.info(f"[{datetime.now().isoformat()}] No crossover detected")
             
             # No action needed
             return ('hold', 0)
             
         except Exception as e:
-            logger.error(f"Error in SMA crossover algorithm for {self.ticker}: {str(e)}")
+            logger.error(f"[{datetime.now().isoformat()}] Algorithm error occurred")
             return ('hold', 0)
+    
+
+    ################################################################################
+    # HELPER FUNCTIONS
+    ################################################################################
     
     def _calculate_current_position(self, transactions):
         """Calculate current share position from transaction history"""
@@ -136,15 +157,3 @@ class Algorithm:
             else:  # sell
                 cash_used -= tx['shares'] * tx['price']
         return cash_used
-
-
-# For testing the algorithm independently
-if __name__ == "__main__":
-    # Test initialization
-    algo = Algorithm("AAPL", 10000)
-    
-    # Mock test - would need actual database setup to fully test
-    print(f"Algorithm initialized for {algo.ticker} with ${algo.initial_capital:,.2f}")
-    print(f"Using {algo.sma_short}-period short SMA and {algo.sma_long}-period long SMA")
-    
-    # You could add more comprehensive tests here with mock data

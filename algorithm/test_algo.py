@@ -1,11 +1,27 @@
+"""
+################################################################################
+# FILE: test_algo.py
+# PURPOSE: Test algorithm for system testing with simple trend following logic
+################################################################################
+"""
+
 from database.db_manager import get_data_for_algorithm
 from system_databse.system_db_manager import get_transactions
 from datetime import datetime, timezone
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%SZ'
+)
 logger = logging.getLogger(__name__)
+
+
+################################################################################
+# MAIN ALGORITHM CLASS
+################################################################################
 
 class Algorithm:
     """
@@ -37,13 +53,13 @@ class Algorithm:
             tuple: ('buy'/'sell'/'hold', shares)
         """
         try:
-            logger.info(f"\n{'='*50}")
-            logger.info(f"TEST_ALGO running for {self.ticker} (algo_id: {algo_id})")
-            logger.info(f"Initial capital: ${self.initial_capital:,.2f}")
+            logger.info(f"[{datetime.now().isoformat()}] Algorithm started")
+            logger.info(f"[{datetime.now().isoformat()}] Processing ticker data")
+            logger.info(f"[{datetime.now().isoformat()}] Initialized capital allocation")
             
             # Step 1: Rebuild full context from transaction history
             transactions = get_transactions(algo_id)
-            logger.info(f"Found {len(transactions)} historical transactions")
+            logger.info(f"[{datetime.now().isoformat()}] Retrieved transaction history")
             
             # Calculate current position and cash used
             current_shares = 0
@@ -59,9 +75,9 @@ class Algorithm:
             
             available_cash = self.initial_capital - net_cash_used
             
-            logger.info(f"Current position: {current_shares} shares")
-            logger.info(f"Net cash used: ${net_cash_used:,.2f}")
-            logger.info(f"Available cash: ${available_cash:,.2f}")
+            logger.info(f"[{datetime.now().isoformat()}] Current position calculated")
+            logger.info(f"[{datetime.now().isoformat()}] Net cash calculated")
+            logger.info(f"[{datetime.now().isoformat()}] Available cash calculated")
             
             # Step 2: Get last 10 bars of data (ask for 11 to ensure we get 10)
             bars = get_data_for_algorithm(
@@ -72,13 +88,13 @@ class Algorithm:
             )
             
             if not bars or len(bars) < 10:
-                logger.warning(f"Insufficient data. Need 10 bars, got {len(bars) if bars else 0}")
+                logger.warning(f"[{datetime.now().isoformat()}] Insufficient data received")
                 return ('hold', 0)
             
-            logger.info(f"Got {len(bars)} bars total")
+            logger.info(f"[{datetime.now().isoformat()}] Received data bars")
             if bars:
-                logger.info(f"First bar timestamp: {bars[0]['timestamp']}")
-                logger.info(f"Last bar timestamp: {bars[-1]['timestamp']}")
+                logger.info(f"[{datetime.now().isoformat()}] First bar validated")
+                logger.info(f"[{datetime.now().isoformat()}] Last bar validated")
             
             # Extract close prices (use only last 10 bars for calculation)
             close_prices = []
@@ -87,72 +103,60 @@ class Algorithm:
                 if 'ohlcv' in bar and bar['ohlcv']:
                     close_prices.append(bar['ohlcv']['c'])
                 else:
-                    logger.warning(f"Missing ohlcv data in bar")
+                    logger.warning(f"[{datetime.now().isoformat()}] Missing OHLCV data")
                     return ('hold', 0)
             
-            logger.info(f"Using last 10 bars for calculation")
-            logger.info(f"Prices: {[f'${p:.2f}' for p in close_prices]}")
+            logger.info(f"[{datetime.now().isoformat()}] Extracted price data")
+            logger.info(f"[{datetime.now().isoformat()}] Price data validated")
             
             # Step 3: Calculate simple trend
             first_5_avg = sum(close_prices[:5]) / 5
             last_5_avg = sum(close_prices[5:]) / 5
             current_price = close_prices[-1]
             
-            logger.info(f"First 5 bars average: ${first_5_avg:.2f}")
-            logger.info(f"Last 5 bars average: ${last_5_avg:.2f}")
-            logger.info(f"Current price: ${current_price:.2f}")
+            logger.info(f"[{datetime.now().isoformat()}] Calculated first average")
+            logger.info(f"[{datetime.now().isoformat()}] Calculated last average")
+            logger.info(f"[{datetime.now().isoformat()}] Retrieved current price")
             
             # Calculate trend percentage change for more sensitivity
             trend_change = ((last_5_avg - first_5_avg) / first_5_avg) * 100
-            logger.info(f"Trend change: {trend_change:.3f}%")
+            logger.info(f"[{datetime.now().isoformat()}] Calculated trend change")
             
             # Step 4: Make trading decision with position/capital constraints
             # Use a small threshold for more active trading (0.01% = 0.0001)
             if trend_change > 0.01:  # Even tiny upward trend triggers buy
                 # Trend is UP - try to buy
-                logger.info("📈 TREND IS UP")
+                logger.info(f"[{datetime.now().isoformat()}] Upward trend detected")
                 
                 # Check if we have enough cash for 10 shares
                 cost_to_buy = self.shares_per_trade * current_price
                 
                 if available_cash >= cost_to_buy:
-                    logger.info(f"✅ Buying {self.shares_per_trade} shares (cost: ${cost_to_buy:.2f})")
+                    logger.info(f"[{datetime.now().isoformat()}] Generating buy signal")
                     return ('buy', self.shares_per_trade)
                 else:
-                    logger.info(f"❌ Not enough cash. Need ${cost_to_buy:.2f}, have ${available_cash:.2f}")
+                    logger.info(f"[{datetime.now().isoformat()}] Insufficient funds")
                     return ('hold', 0)
                     
             elif trend_change < -0.01:  # Even tiny downward trend triggers sell
                 # Trend is DOWN - try to sell
-                logger.info("📉 TREND IS DOWN")
+                logger.info(f"[{datetime.now().isoformat()}] Downward trend detected")
                 
                 # Check if we have shares to sell
                 if current_shares >= self.shares_per_trade:
-                    logger.info(f"✅ Selling {self.shares_per_trade} shares")
+                    logger.info(f"[{datetime.now().isoformat()}] Generating sell signal")
                     return ('sell', self.shares_per_trade)
                 else:
-                    logger.info(f"❌ Not enough shares. Have {current_shares}, need {self.shares_per_trade}")
+                    logger.info(f"[{datetime.now().isoformat()}] Insufficient shares")
                     return ('hold', 0)
                     
             else:
                 # Trend is FLAT (between -0.01% and +0.01%)
-                logger.info(f"➡️ TREND IS FLAT ({trend_change:.3f}%) - holding")
+                logger.info(f"[{datetime.now().isoformat()}] Flat trend detected")
                 return ('hold', 0)
                 
         except Exception as e:
-            logger.error(f"❌ Error in test_algo for {self.ticker}: {str(e)}")
+            logger.error(f"[{datetime.now().isoformat()}] Algorithm error occurred")
             import traceback
             traceback.print_exc()
             return ('hold', 0)
-
-
-# For testing the algorithm independently
-if __name__ == "__main__":
-    # Test initialization
-    algo = Algorithm("AAPL", 1000)  # $1000 allocation
-    
-    print(f"Test algorithm initialized for {algo.ticker}")
-    print(f"Initial capital: ${algo.initial_capital}")
-    print(f"Shares per trade: {algo.shares_per_trade}")
-    
-    # You could add mock tests here

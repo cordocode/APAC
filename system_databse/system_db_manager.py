@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-System Database Manager
-Functions to interact with system.db for algorithm state management
+################################################################################
+# FILE: system_db_manager.py
+# PURPOSE: Functions to interact with system.db for algorithm state management
+################################################################################
 """
 
 import sqlite3
@@ -13,9 +15,9 @@ from typing import Optional, List, Dict, Any
 DB_PATH = "system_databse/system.db"
 
 
-# =============================================================================
+################################################################################
 # DATABASE CONNECTION
-# =============================================================================
+################################################################################
 
 def get_connection():
     """Get database connection with foreign keys enabled"""
@@ -26,9 +28,9 @@ def get_connection():
     return conn
 
 
-# =============================================================================
+################################################################################
 # PIN MANAGEMENT
-# =============================================================================
+################################################################################
 
 def get_pin() -> str:
     """Get the current PIN from system_config"""
@@ -45,14 +47,15 @@ def get_pin() -> str:
         raise ValueError("PIN not found in system configuration")
 
 
-# =============================================================================
+################################################################################
 # ALGORITHM LIFECYCLE MANAGEMENT
-# =============================================================================
+################################################################################
 
 def generate_display_name(ticker: str, algo_type: str) -> str:
     """Generate display name: NVDA_SMA_20240102_143022"""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     return f"{ticker}_{algo_type}_{timestamp}"
+
 
 def create_algorithm(ticker: str, algo_type: str, initial_capital: float) -> int:
     """Create a new algorithm instance and return its ID"""
@@ -85,6 +88,7 @@ def create_algorithm(ticker: str, algo_type: str, initial_capital: float) -> int
             conn.close()
         raise e
 
+
 def stop_algorithm(algo_id: int) -> bool:
     """Stop an algorithm by setting status to 'stopped'"""
     try:
@@ -111,6 +115,7 @@ def stop_algorithm(algo_id: int) -> bool:
             conn.close()
         raise e
 
+
 def get_algorithm(algo_id: int) -> Optional[Dict[str, Any]]:
     """Get a single algorithm by ID"""
     conn = get_connection()
@@ -121,6 +126,7 @@ def get_algorithm(algo_id: int) -> Optional[Dict[str, Any]]:
     conn.close()
     
     return dict(result) if result else None
+
 
 def get_all_algorithms(status: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get all algorithms, optionally filtered by status"""
@@ -138,9 +144,9 @@ def get_all_algorithms(status: Optional[str] = None) -> List[Dict[str, Any]]:
     return [dict(row) for row in results]
 
 
-# =============================================================================
+################################################################################
 # TRANSACTION MANAGEMENT
-# =============================================================================
+################################################################################
 
 def record_buy(algo_id: int, shares: int, price: float) -> int:
     """Record a buy transaction and return transaction ID"""
@@ -169,6 +175,7 @@ def record_buy(algo_id: int, shares: int, price: float) -> int:
             conn.close()
         raise e
 
+
 def record_sell(algo_id: int, shares: int, price: float) -> int:
     """Record a sell transaction and return transaction ID"""
     try:
@@ -195,6 +202,7 @@ def record_sell(algo_id: int, shares: int, price: float) -> int:
             conn.rollback()
             conn.close()
         raise e
+
 
 def get_transactions(algo_id: int) -> List[Dict[str, Any]]:
     """Get all transactions for an algorithm"""

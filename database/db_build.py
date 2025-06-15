@@ -1,18 +1,35 @@
-#!/usr/bin/env python3
 """
-Database Build Script - Creates the market-hours-only database
+################################################################################
+# FILE: db_build.py
+# PURPOSE: Database build script that creates the market-hours-only database
+################################################################################
 """
 
 import os
 import sys
 from pathlib import Path
+from datetime import datetime
+import logging
 
 # Add current directory to path for imports
 sys.path.append(str(Path(__file__).parent))
 
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%SZ'
+)
+logger = logging.getLogger(__name__)
+
+
+################################################################################
+# DATABASE CREATION
+################################################################################
+
 def create_database():
     """Create the market-hours-only database"""
-    print("🔄 Creating market-hours-only database...")
+    print(f"[{datetime.now().isoformat()}] Creating database")
     print("="*50)
     
     try:
@@ -25,11 +42,11 @@ def create_database():
         # Create the database
         initialize_database()
         
-        print("\n✅ Database creation completed!")
+        print(f"\n[{datetime.now().isoformat()}] Database creation completed")
         print("="*50)
         
     except Exception as e:
-        print(f"\n❌ Database creation failed: {e}")
+        print(f"\n[{datetime.now().isoformat()}] Database creation failed")
         raise
 
 if __name__ == "__main__":

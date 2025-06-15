@@ -1,7 +1,8 @@
-#!/usr/bin/env python3
 """
-Market Calendar Manager
-Handles all market hours, holidays, and calendar logic using Alpaca Calendar API
+################################################################################
+# FILE: calendar_manager.py
+# PURPOSE: Market calendar manager using Alpaca Calendar API for market hours
+################################################################################
 """
 
 import os
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta
 import pytz
 from typing import List, Dict
 import requests
+import logging
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -21,9 +23,18 @@ load_dotenv(Path(__file__).parent.parent / '.env')
 
 from alpaca.trading.client import TradingClient
 
-#==============================================================================
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%SZ'
+)
+logger = logging.getLogger(__name__)
+
+
+################################################################################
 # MARKET CALENDAR CLASS
-#==============================================================================
+################################################################################
 
 class MarketCalendar:
     """
@@ -50,11 +61,12 @@ class MarketCalendar:
         self.eastern = pytz.timezone('US/Eastern')
         self.utc = pytz.UTC
         
-        print("✅ Market Calendar initialized with Alpaca API")
+        print(f"[{datetime.now().isoformat()}] Market calendar initialized")
 
-#==============================================================================
+
+################################################################################
 # CALENDAR DATA FETCHING
-#==============================================================================
+################################################################################
 
     def get_market_schedule(self, start_date: str, end_date: str) -> List[Dict]:
         """Get market schedule - using direct REST API since SDK has issues"""
@@ -83,10 +95,10 @@ class MarketCalendar:
                     })
                 
                 self.calendar_cache[cache_key] = calendar_data
-                print(f"📅 Got {len(calendar_data)} trading days")
+                print(f"[{datetime.now().isoformat()}] Retrieved trading days")
                 
             except Exception as e:
-                print(f"❌ Error: {e}")
+                print(f"[{datetime.now().isoformat()}] Calendar fetch error")
                 raise
         
         return self.calendar_cache[cache_key]
@@ -94,11 +106,12 @@ class MarketCalendar:
     def clear_calendar_cache(self):
         """Clear calendar cache (call this daily or when needed)"""
         self.calendar_cache.clear()
-        print("🗑️  Calendar cache cleared")
+        print(f"[{datetime.now().isoformat()}] Calendar cache cleared")
 
-#==============================================================================
+
+################################################################################
 # MARKET MINUTE GENERATION
-#==============================================================================
+################################################################################
 
     def generate_all_market_minutes(self, start_year: int = 2018, end_year: int = 2028) -> List[str]:
         """
@@ -111,7 +124,7 @@ class MarketCalendar:
         Returns:
             List of UTC timestamp strings in 'YYYY-MM-DDTHH:MM:SSZ' format
         """
-        print(f"🔄 Generating all market minutes from {start_year} to {end_year}...")
+        print(f"[{datetime.now().isoformat()}] Generating market minutes")
         
         # Get full calendar for entire range
         start_date = f"{start_year}-01-01"
@@ -126,7 +139,7 @@ class MarketCalendar:
         total_days = len(market_schedule)
         days_processed = 0
         
-        print(f"📅 Processing {total_days:,} trading days...")
+        print(f"[{datetime.now().isoformat()}] Processing trading days")
         
         for day_info in market_schedule:
             date_str = day_info['date']
@@ -141,10 +154,10 @@ class MarketCalendar:
             
             # Simple progress every 500 days
             if days_processed % 500 == 0:
-                print(f"  Processed {days_processed}/{total_days} days...")
+                print(f"[{datetime.now().isoformat()}] Processing progress update")
         
-        print(f"✅ Generated {len(market_minutes):,} total market minutes")
-        print(f"📅 Date range: {market_minutes[0]} to {market_minutes[-1]}")
+        print(f"[{datetime.now().isoformat()}] Generated market minutes")
+        print(f"[{datetime.now().isoformat()}] Date range computed")
         
         return market_minutes
 
@@ -195,9 +208,10 @@ class MarketCalendar:
         
         return day_minutes
 
-#==============================================================================
+
+################################################################################
 # MARKET STATUS UTILITIES
-#==============================================================================
+################################################################################
 
     def is_market_open_now(self) -> bool:
         """
@@ -210,7 +224,7 @@ class MarketCalendar:
             clock = self.client.get_clock()
             return clock.is_open
         except Exception as e:
-            print(f"❌ Error checking market status: {e}")
+            print(f"[{datetime.now().isoformat()}] Market status error")
             return False
 
     def get_market_status(self) -> Dict:
@@ -229,7 +243,7 @@ class MarketCalendar:
                 'next_close': clock.next_close.strftime('%Y-%m-%dT%H:%M:%SZ')
             }
         except Exception as e:
-            print(f"❌ Error getting market status: {e}")
+            print(f"[{datetime.now().isoformat()}] Market status error")
             return {
                 'is_open': False,
                 'current_time': datetime.now(self.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
@@ -269,33 +283,3 @@ class MarketCalendar:
                 return day['date']
         
         raise ValueError(f"Could not find next trading day after {from_date}")
-
-#==============================================================================
-# TESTING AND VALIDATION
-#==============================================================================
-
-if __name__ == "__main__":
-    """Test the calendar manager with real scenarios"""
-    print("🧪 Testing Market Calendar functionality...")
-    
-    try:
-        calendar = MarketCalendar()
-        
-        # Test market status
-        status = calendar.get_market_status()
-        print(f"Market open: {status['is_open']}")
-        print(f"Current time: {status['current_time']}")
-        
-        # Test schedule retrieval
-        schedule = calendar.get_market_schedule('2025-06-16', '2025-06-20')
-        print(f"Trading days in test week: {len(schedule)}")
-        
-        # Test next trading day
-        next_day = calendar.get_next_trading_day('2025-06-20')
-        print(f"Next trading day after Friday: {next_day}")
-        
-        print("✅ All calendar tests passed!")
-        
-    except Exception as e:
-        print(f"❌ Calendar test failed: {e}")
-        raise

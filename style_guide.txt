@@ -1,0 +1,283 @@
+Auto Trader Bot - Unified Style Guide
+AI Refactoring Prompt
+Copy this prompt when refactoring code:
+Your job as an AI is to look at this code and remake it so that it matches our style guide WITHOUT changing any of the functionality. The code must work exactly the same way after refactoring. Only restructure for consistency and readability according to the style guide rules below.
+Quick Conversion Guide
+For the most common print patterns in the codebase:
+Current PatternConvert To[12:28:00] 📊 Stored NVDA: $144.39[2025-06-12T18:28:00Z] Stored price data🔍 Getting last 11 bars for AAPL[timestamp] Getting price bars📡 Requesting data from Alpaca API...[timestamp] Requesting Alpaca data✅ Historical data fetcher initialized[timestamp] Initialized data fetcher❌ Missing 1 data points[timestamp] Missing data detected📥 Received 774 bars from Alpaca[timestamp] Received data barsINFO:algorithm.test_algo:Current position: 10 shares[timestamp] Current position calculated
+
+🔥 Core Principles
+
+NEVER CHANGE FUNCTIONALITY - Code behavior must remain identical
+Consistency over preference - All code should look like it was written by one person
+Clean, chronological structure - Logical flow from top to bottom
+No emojis in code - Professional, clean output only
+
+
+⚠️ CRITICAL: DO NOT CHANGE (AutoTrader Specific)
+Import Paths (FUNCTIONAL REQUIREMENT)
+
+NEVER modify import paths - they are functional requirements, not style choices
+Preserve ALL typos: system_databse (NOT system_database)
+Keep full paths from APAC root:
+pythonfrom database.db_manager import get_data_for_algorithm
+from system_databse.system_db_manager import get_transactions
+from orchestra.alpaca_wrapper import AlpacaWrapper
+
+Preserve test file patterns:
+pythonimport sys
+sys.path.append('.')  # Must keep this exact pattern
+
+
+Directory Names (EXACT - DO NOT CORRECT)
+
+/algorithm/ (singular, NOT algorithms)
+/system_databse/ (keep the typo!)
+/orchestra/ (NOT orchestrator)
+/database/
+/frontend/
+
+Function Signatures & Class Structure
+Never change existing function names, parameters, or return types:
+
+get_data_for_algorithm(ticker, requirement_type, **kwargs)
+get_transactions(algo_id)
+place_market_buy(ticker, shares)
+place_market_sell(ticker, shares)
+
+Algorithm class structure MUST remain:
+pythonclass Algorithm:
+    def __init__(self, ticker, initial_capital):
+        self.ticker = ticker
+        self.initial_capital = initial_capital
+    
+    def run(self, current_time, algo_id):
+        # Must return tuple: (action, shares)
+        return ('buy'/'sell'/'hold', shares)
+Database & API Details
+
+UTC timestamps with 'Z' suffix: Already matches our style guide ✓
+Port 5001: Do not change (was 5000 in original design)
+Table/column names: Keep exact spelling, even if incorrect
+
+
+📁 File Structure
+Header Comments (All Files)
+Every file starts with a bold header comment:
+Python:
+python"""
+################################################################################
+# FILE: filename.py
+# PURPOSE: Brief description of what this file does
+################################################################################
+"""
+JavaScript:
+javascript/*
+################################################################################
+# FILE: filename.js
+# PURPOSE: Brief description of what this file does
+################################################################################
+*/
+Import Organization
+
+All imports at the very top (after header comment)
+Group imports logically:
+
+Standard library imports first
+Third-party imports second
+Local/project imports last
+
+
+One blank line between groups
+
+
+🖨️ Print Statements / Logging Format
+Unified Format (CRITICAL)
+Every single print/log statement follows this exact format:
+[ISO-8601-TIMESTAMP] Action description
+Python Implementation
+python# For regular prints
+from datetime import datetime
+print(f"[{datetime.now().isoformat()}] Stored price data")
+
+# For logging
+import logging
+# Configure formatter ONCE at file top
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%SZ'
+)
+logger = logging.getLogger(__name__)
+logger.info("Algorithm initialized")
+Before → After Examples
+python# ❌ WRONG (current mess)
+[12:28:00] 📊 Stored NVDA: $144.39 at 2025-06-12T18:27:00Z
+🔍 Getting last 11 bars for AAPL before 2025-06-11T19:56:02Z
+📡 Requesting data from Alpaca API...
+INFO:algorithm.test_algo:Current position: 10 shares
+
+# ✅ CORRECT (unified)
+[2025-06-12T18:28:00Z] Stored NVDA price
+[2025-06-11T19:56:02Z] Getting price bars
+[2025-06-11T19:56:02Z] Requesting Alpaca data
+[2025-06-11T19:56:02Z] Current position calculated
+Standard Action Descriptions
+Use these exact phrases for common actions:
+
+Data Operations: "Stored price data", "Fetched historical data", "Updated database"
+Trading: "Placed buy order", "Placed sell order", "Order filled"
+System: "Started algorithm", "Stopped algorithm", "Connected WebSocket"
+Calculations: "Calculated position", "Updated portfolio", "Computed average"
+API: "API request sent", "API response received", "Validated ticker"
+
+Rules for Print Statements:
+
+NO EMOJIS (remove all 📊 🔍 ✅ ❌ etc.)
+2-4 words max for action description
+No variable data in the action (no prices, no symbols, no counts)
+Always ISO 8601 with 'Z' suffix
+Capitalized first word ("Stored data" not "stored data")
+
+Special Cases
+
+Flask/Werkzeug logs - Leave unchanged (can't control framework logs)
+127.0.0.1 - - [12/Jun/2025 12:28:11] "GET /api/algorithms HTTP/1.1" 200 -
+
+Multi-line debug info - Convert to single lines
+python# ❌ WRONG
+INFO:algorithm.test_algo:
+==================================================
+INFO:algorithm.test_algo:TEST_ALGO running for AAPL
+
+# ✅ CORRECT
+[2025-06-11T19:56:02Z] Algorithm started
+[2025-06-11T19:56:02Z] Processing AAPL data
+
+Progress indicators - Simplify to status updates
+python# ❌ WRONG
+📥 Received 774 bars from Alpaca
+✅ Returning 10 bars from 2025-06-11T19:46:00Z
+
+# ✅ CORRECT  
+[2025-06-11T19:56:02Z] Received data bars
+[2025-06-11T19:56:02Z] Processed data bars
+
+
+
+💻 Code Style
+Indentation
+
+Python: 4 spaces (no tabs)
+JavaScript: 2 spaces (no tabs)
+
+Function Organization
+Functions should be organized in chronological/logical order:
+
+Initialization functions
+Connection/setup functions
+Main logic functions
+Helper/utility functions
+Cleanup functions
+
+Section Headers
+Use bold comment headers to separate major sections:
+Python:
+python################################################################################
+# INITIALIZATION
+################################################################################
+
+# code here...
+
+################################################################################
+# MAIN TRADING LOGIC
+################################################################################
+
+# code here...
+JavaScript:
+javascript////////////////////////////////////////////////////////////////////////////////
+// INITIALIZATION
+////////////////////////////////////////////////////////////////////////////////
+
+// code here...
+
+////////////////////////////////////////////////////////////////////////////////
+// MAIN TRADING LOGIC
+////////////////////////////////////////////////////////////////////////////////
+
+// code here...
+
+🔧 General Rules
+Naming Conventions
+
+Python: snake_case for functions/variables, PascalCase for classes
+JavaScript: camelCase for functions/variables, PascalCase for classes
+Constants: UPPER_SNAKE_CASE in both languages
+
+Spacing
+
+One blank line between function definitions
+Two blank lines between class definitions
+One blank line after imports
+
+Comments
+
+Explain WHY, not WHAT
+Keep comments concise
+Remove old/commented-out code
+
+Test Blocks (Python)
+Remove if __name__ == "__main__": blocks from all files except:
+
+orchestra/orchestrator.py (the main entry point)
+Files with critical initialization code (very rare)
+
+python# ❌ REMOVE these test blocks:
+if __name__ == "__main__":
+    algo = Algorithm("AAPL", 10000)
+    print(algo.run("2024-01-01T15:00:00Z", 1))
+    
+# ✅ File should end with the last function/class
+
+✅ Refactoring Process (Follow in Order)
+When you receive code to refactor:
+
+First - Verify imports, paths, and function signatures remain EXACTLY the same
+Add file header comment with the format shown above
+Keep imports at top but DO NOT change their paths
+Convert ALL print/log statements to unified format:
+
+Remove ALL emojis (🔍 📊 ✅ ❌ etc.)
+Add ISO timestamps to every print
+Simplify descriptions to 2-4 words
+Use standard action vocabulary
+
+
+Convert multi-line logging blocks to single-line format
+Add section headers using # characters where logical
+Fix indentation (4 spaces Python, 2 spaces JavaScript)
+Reorganize functions in chronological/logical order
+Remove commented-out code and clean up spacing
+Remove if __name__ == "__main__": test blocks (keep ONLY if it's orchestrator.py or contains critical setup)
+
+CRITICAL: After refactoring, the code must work EXACTLY as before. Only appearance changes!
+REMEMBER: system_databse (typo) and /algorithm/ (singular) are CORRECT - do not "fix" them!
+
+📋 Quick Reference
+
+Timestamp format: datetime.now().isoformat() (Python) or new Date().toISOString() (JavaScript)
+Print format: [timestamp] Two three words
+No emojis: 🚫 ❌ ⚠️ → Replace with text
+Headers: Use # characters for visual separation
+
+
+🎯 Final Output Requirements
+When refactoring code with this style guide:
+
+Output Format: Always return the COMPLETE refactored code in an artifact
+Artifact Type: Use appropriate type (Python → application/vnd.ant.code with language="python")
+Completeness: Include EVERY line of the original file (refactored)
+Title: Use the original filename as the artifact title
+No Truncation: The refactored code must be complete and ready to save/run
+
+Remember: The person using this style guide expects to receive a fully refactored file in an artifact that they can immediately copy and use. Do not provide partial code or explanations outside the artifact.
