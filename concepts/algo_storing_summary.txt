@@ -1,0 +1,92 @@
+# Algorithm Instance Management - How It All Works
+
+## The Big Picture
+
+AutoTrader uses a **snapshot-based approach** where each algorithm instance runs from a cached version of the code that was loaded when the instance was created. Think of it like taking a photo - once you take the photo, it doesn't change even if the original scene does.
+
+## How Algorithm Files Work
+
+### The Algorithm Directory
+- Location: `/algorithm/` (note: singular, not plural)
+- Contains: Python files like `sma_crossover.py`, `test_algo.py`, etc.
+- Each file must have a class named `Algorithm` with the standard structure
+
+### Discovery (Finding Available Algorithms)
+1. **When you open the "Add Algorithm" modal**, the frontend asks the API server for available algorithms
+2. **API server scans** the `/algorithm/` directory RIGHT NOW (fresh scan every time)
+3. **Returns list** of all .py files that have an `Algorithm` class
+4. **Frontend shows** these options in the dropdown
+
+**Key Point**: This is a fresh scan every time - if you add `new_strategy.py` while the system is running, it will appear next time you open the modal.
+
+## How Instances Are Created and Run
+
+### Creating an Instance
+1. **You select** "NVDA" + "sma_crossover" + "$10,000" and click CREATE
+2. **System creates database entry**:
+   - ID: 1
+   - Display name: "NVDA_sma_crossover_20240604_143022"
+   - Status: "running"
+3. **WebSocket subscribes** to NVDA real-time data
+4. **Module is NOT loaded yet** - that happens on first execution
+
+### First Execution (The Critical Moment)
+1. **Orchestrator runs** (every minute at :02 seconds)
+2. **Sees algorithm #1** needs to run with type "sma_crossover"
+3. **Checks cache**: Is "sma_crossover" in `loaded_modules` dict?
+   - **NO**: Loads `/algorithm/sma_crossover.py` into memory, caches it
+   - **YES**: Uses the cached version
+4. **Creates instance**: `algo = CachedModule.Algorithm("NVDA", 10000)`
+5. **Runs it**: `action, shares = algo.run(current_time, algo_id=1)`
+
+### Every Subsequent Execution
+- Uses the CACHED module from memory
+- Never reads the .py file again
+- Even if you delete sma_crossover.py, existing instances keep running
+
+## What Happens When You Change Files
+
+### Adding a New Algorithm File
+- **System is running**, you add `momentum_trader.py`
+- **Nothing happens** to running instances
+- **Next time you open "Add Algorithm"**: momentum_trader appears in dropdown
+- **Can create new instances** using this algorithm
+
+### Modifying an Existing Algorithm File
+- **System is running**, you edit `sma_crossover.py`
+- **Existing instances**: Keep using old cached version (unchanged)
+- **New instances**: Will use the NEW version when first loaded
+- **This is why** your guideline says "make a new file for new versions"
+
+### Deleting an Algorithm File
+- **System is running**, you delete `sma_crossover.py`
+- **Existing instances**: Keep running (using cached module)
+- **"Add Algorithm" modal**: Won't show sma_crossover anymore
+- **Cannot create** new instances of this type
+
+### Renaming an Algorithm File
+- Same as delete + add
+- Old instances keep running with old cached code
+- New name appears in dropdown for new instances
+
+## Edge Cases and Behaviors
+
+### Multiple Instances of Same Algorithm
+- Instance #1: NVDA with sma_crossover
+- Instance #2: AAPL with sma_crossover
+- Instance #3: NVDA with sma_crossover (yes, duplicates allowed)
+- **All use THE SAME cached module** (loaded once, shared)
+
+### Algorithm Crashes
+- If an algorithm crashes, orchestrator marks it as "failed"
+- Won't try to run it again until orchestrator restarts
+- Other algorithms keep running
+
+### File Has Syntax Errors
+- **During discovery**: API server tries to load it, fails, excludes from list
+- **During execution**: If somehow created, will fail on first run and be marked as failed
+
+### System Restart
+- All module caches are cleared
+- All algorithms load fresh from current .py files
+- This is the ONLY way to update running algorithms to new code
