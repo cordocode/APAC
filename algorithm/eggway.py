@@ -1,6 +1,6 @@
 """
 ################################################################################
-# FILE: support_resistance_scalper.py
+# FILE: eggway.py
 # PURPOSE: Support resistance long only scalper trading algorithm
 ################################################################################
 """
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # ALGORITHM CLASS
 ################################################################################
 
-class SupportResistanceLongOnlyScalper:
+class Algorithm:
     """
     Support Resistance Long Only Scalper
     

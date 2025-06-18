@@ -623,6 +623,9 @@ if (data.valid === true) {
 - `GET /api/available-algorithms` - Scans `/algorithm/` directory for all .py files with Algorithm class
   - Shows all Python files except those starting with `_`
   - No filtering of test files
+KEY UPDATE --------
+await loadAvailableAlgorithms();  // Fresh scan of /algorithm/ directory
+await loadAvailableCash();
 - `GET /api/account/cash` - Available cash for new allocations
 - `GET /api/market-status` - Current market open/closed state
 - `GET /api/validate-ticker?symbol=NVDA` - Validate ticker for trading

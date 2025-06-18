@@ -3,8 +3,6 @@
 ################################################################################
 # FILE: orchestrator.py
 # PURPOSE: Core execution engine for AutoTrader with integrated API server
-# CREATED: 2025-01-10
-# MODIFIED: 2025-01-10
 ################################################################################
 """
 

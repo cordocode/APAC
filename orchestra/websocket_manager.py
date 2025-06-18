@@ -3,8 +3,6 @@
 ################################################################################
 # FILE: websocket_manager.py
 # PURPOSE: Manages real-time data subscriptions based on running algorithms
-# CREATED: 2025-01-10
-# MODIFIED: 2025-01-10
 ################################################################################
 """
 

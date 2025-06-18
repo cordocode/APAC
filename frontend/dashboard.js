@@ -351,6 +351,8 @@ async function validatePin() {
       if (currentPinAction === 'add') {
         console.log(`[${new Date().toISOString()}] Loading cash data`);
         try {
+          // CRITICAL FIX: Refresh available algorithms before showing modal
+          await loadAvailableAlgorithms();
           await loadAvailableCash();
         } catch (e) {
           console.error(`[${new Date().toISOString()}] Cash loading failed`, e);
