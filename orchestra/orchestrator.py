@@ -44,8 +44,7 @@ class Orchestrator:
         self.running = True
         self.last_execution = None
         self.api_thread = None  # Thread for API server
-        print(f"[{datetime.now().isoformat()}] Orchestrator initialized")
-        print(f"[{datetime.now().isoformat()}] Current time recorded")
+        print("[OK] Orchestrator initialized")
         
     def load_algorithm_module(self, algo_type):
         """
@@ -65,15 +64,15 @@ class Orchestrator:
             module = importlib.import_module(module_path)
             
             if not hasattr(module, 'Algorithm'):
-                print(f"[{datetime.now().isoformat()}] Module missing class")
+                print(f"[ERROR] Algorithm module '{algo_type}' missing required 'Algorithm' class")
                 return None
             
             self.loaded_modules[algo_type] = module
-            print(f"[{datetime.now().isoformat()}] Loaded algorithm module")
+            print(f"[OK] Algorithm module '{algo_type}' loaded successfully")
             return module
             
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Failed loading algorithm")
+            print(f"[ERROR] Failed loading algorithm module '{algo_type}': {str(e)}")
             return None
     
     def execute_algorithm(self, algo_data):
@@ -90,7 +89,7 @@ class Orchestrator:
         
         # Skip if previously failed
         if algo_id in self.failed_algorithms:
-            print(f"[{datetime.now().isoformat()}] Skipping failed algorithm")
+            print(f"[WARN] Skipping previously failed algorithm: {algo_data['display_name']} (ID: {algo_id})")
             return False
         
         try:
@@ -110,29 +109,27 @@ class Orchestrator:
             current_time = datetime.now(pytz.UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
             
             # Run algorithm
-            print(f"[{datetime.now().isoformat()}] Running algorithm")
             action, shares = algo_instance.run(current_time, algo_id)
             
             # Validate response
             if not self._validate_algorithm_response(action, shares):
-                print(f"[{datetime.now().isoformat()}] Invalid algorithm response")
+                print(f"[ERROR] Algorithm {algo_data['display_name']} returned invalid response: action='{action}', shares={shares}")
                 return False
             
             # Execute trading decision
             if action == 'buy' and shares > 0:
-                self._execute_buy(algo_id, algo_data['ticker'], shares)
+                self._execute_buy(algo_id, algo_data['ticker'], shares, algo_data['display_name'])
             elif action == 'sell' and shares > 0:
-                self._execute_sell(algo_id, algo_data['ticker'], shares)
+                self._execute_sell(algo_id, algo_data['ticker'], shares, algo_data['display_name'])
             else:
-                print(f"[{datetime.now().isoformat()}] Holding position")
+                print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [INFO] {algo_data['display_name']} holding position")
             
             return True
             
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Algorithm crashed")
+            print(f"[ERROR] Algorithm {algo_data['display_name']} crashed: {str(e)}")
             traceback.print_exc()
             self.failed_algorithms.add(algo_id)
-            print(f"[{datetime.now().isoformat()}] Algorithm marked failed")
             return False
     
     def _validate_algorithm_response(self, action, shares):
@@ -143,50 +140,46 @@ class Orchestrator:
             return False
         return True
     
-    def _execute_buy(self, algo_id, ticker, shares):
+    def _execute_buy(self, algo_id, ticker, shares, display_name):
         """Execute buy order and record transaction"""
         try:
-            print(f"[{datetime.now().isoformat()}] Placing buy order")
-            
             # Place market buy order
             fill_price = self.alpaca.place_market_buy(ticker, shares)
             
             # Record transaction
             tx_id = record_buy(algo_id, shares, fill_price)
             
-            print(f"[{datetime.now().isoformat()}] Buy order executed")
+            if tx_id:
+                print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [OK] Buy executed: {shares} {ticker} @ ${fill_price:.2f} (TX: {tx_id}) for {display_name}")
             
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Buy order failed")
+            print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [ERROR] Buy failed for {ticker}: {str(e)}")
     
-    def _execute_sell(self, algo_id, ticker, shares):
+    def _execute_sell(self, algo_id, ticker, shares, display_name):
         """Execute sell order and record transaction"""
         try:
-            print(f"[{datetime.now().isoformat()}] Placing sell order")
-            
             # Place market sell order
             fill_price = self.alpaca.place_market_sell(ticker, shares)
             
             # Record transaction
             tx_id = record_sell(algo_id, shares, fill_price)
             
-            print(f"[{datetime.now().isoformat()}] Sell order executed")
+            if tx_id:
+                print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [OK] Sell executed: {shares} {ticker} @ ${fill_price:.2f} (TX: {tx_id}) for {display_name}")
             
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Sell order failed")
+            print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [ERROR] Sell failed for {ticker}: {str(e)}")
     
     def execute_all_algorithms(self):
         """Execute all running algorithms"""
-        print(f"[{datetime.now().isoformat()}] Executing algorithms")
-        
         # Get all running algorithms
         running_algos = get_all_algorithms(status='running')
         
         if not running_algos:
-            print(f"[{datetime.now().isoformat()}] No algorithms found")
+            print("[INFO] No running algorithms found")
             return
         
-        print(f"[{datetime.now().isoformat()}] Found running algorithms")
+        print(f"[INFO] Found {len(running_algos)} running algorithms")
         
         # Execute each algorithm
         success_count = 0
@@ -194,7 +187,7 @@ class Orchestrator:
             if self.execute_algorithm(algo):
                 success_count += 1
         
-        print(f"[{datetime.now().isoformat()}] Execution complete")
+        print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [OK] Algorithm execution complete: {success_count}/{len(running_algos)} succeeded")
         self.last_execution = datetime.now(pytz.UTC)
     
 
@@ -208,8 +201,6 @@ class Orchestrator:
             # Import and run the API server with our WebSocket manager
             from orchestra.api_server import run_api_server
             
-            print(f"[{datetime.now().isoformat()}] Starting API server")
-            
             # Run API server in a daemon thread
             self.api_thread = threading.Thread(
                 target=run_api_server,
@@ -222,10 +213,10 @@ class Orchestrator:
             
             # Give it a moment to start
             time.sleep(2)
-            print(f"[{datetime.now().isoformat()}] API server started")
+            print("[OK] API server thread started on port 5001")
             
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] API server failed")
+            print(f"[ERROR] API server failed to start: {str(e)}")
             traceback.print_exc()
     
 
@@ -235,28 +226,12 @@ class Orchestrator:
     
     def run(self):
         """Main execution loop - runs forever"""
-        print(f"[{datetime.now().isoformat()}] Starting main loop")
-        print(f"[{datetime.now().isoformat()}] Execution scheduled")
-        print(f"[{datetime.now().isoformat()}] Sleep during closed")
-        
         # START API SERVER FIRST
         self._start_api_server()
         
         # INITIALIZE WEBSOCKET MANAGER
-        print(f"[{datetime.now().isoformat()}] Initializing WebSocket")
         self.ws_manager.initialize_from_db()
         self.ws_manager.start()
-        print(f"[{datetime.now().isoformat()}] Real-time stream active")
-        
-        # Show WebSocket status
-        self.ws_manager.print_status()
-        
-        # SHOW SYSTEM STATUS
-        print(f"[{datetime.now().isoformat()}] System operational")
-        print(f"[{datetime.now().isoformat()}] Orchestrator running")
-        print(f"[{datetime.now().isoformat()}] API server active")
-        print(f"[{datetime.now().isoformat()}] WebSocket active")
-        print(f"[{datetime.now().isoformat()}] Algorithm execution ready")
         
         last_market_state = None
         
@@ -268,9 +243,9 @@ class Orchestrator:
                 # Log market state changes
                 if market_open != last_market_state:
                     if market_open:
-                        print(f"[{datetime.now().isoformat()}] Market opened")
+                        print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [OK] Market opened")
                     else:
-                        print(f"[{datetime.now().isoformat()}] Market closed")
+                        print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [INFO] Market closed")
                     last_market_state = market_open
                 
                 if market_open:
@@ -284,29 +259,26 @@ class Orchestrator:
                     sleep_duration = (next_execution - datetime.now(pytz.UTC)).total_seconds()
                     
                     if sleep_duration > 0:
-                        print(f"[{datetime.now().isoformat()}] Next execution scheduled")
                         time.sleep(sleep_duration)
                 else:
                     # Market is closed - sleep until market open
                     self._sleep_until_market_open()
                     
         except KeyboardInterrupt:
-            print(f"[{datetime.now().isoformat()}] Stopped by user")
+            print("[INFO] Orchestrator stopped by user")
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Orchestrator crashed")
+            print(f"[ERROR] Orchestrator crashed: {str(e)}")
             traceback.print_exc()
         finally:
             # CLEAN SHUTDOWN
-            print(f"[{datetime.now().isoformat()}] Shutting down")
+            print("[INFO] Shutting down orchestrator")
             
             # Stop WebSocket stream
-            print(f"[{datetime.now().isoformat()}] Stopping data stream")
             self.ws_manager.stop()
             
             # API server will stop automatically (daemon thread)
-            print(f"[{datetime.now().isoformat()}] API server stopping")
             
-            print(f"[{datetime.now().isoformat()}] Shutdown complete")
+            print("[OK] Shutdown complete")
     
     def _sleep_until_market_open(self):
         """Sleep until exactly when market opens"""
@@ -323,8 +295,7 @@ class Orchestrator:
                 hours = int(time_until_open // 3600)
                 minutes = int((time_until_open % 3600) // 60)
                 
-                print(f"[{datetime.now().isoformat()}] Market opens later")
-                print(f"[{datetime.now().isoformat()}] Sleeping until open")
+                print(f"[INFO] Market opens in {hours}h {minutes}m")
                 
                 # Sleep until 10 seconds before market open
                 sleep_duration = time_until_open - 10
@@ -335,14 +306,14 @@ class Orchestrator:
                 while datetime.now(pytz.UTC) < next_open:
                     time.sleep(1)
                 
-                print(f"[{datetime.now().isoformat()}] Market opening soon")
+                print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [INFO] Market opening soon")
             else:
                 # Market should be open but isn't? Check again in 10 seconds
-                print(f"[{datetime.now().isoformat()}] Schedule unclear")
+                print("[WARN] Market schedule inconsistency: calculated open time is in the past, rechecking in 10 seconds")
                 time.sleep(10)
         else:
             # Couldn't determine next open, check again in 60 seconds
-            print(f"[{datetime.now().isoformat()}] Cannot determine open")
+            print("[WARN] Cannot determine next market open time, checking again in 60 seconds")
             time.sleep(60)
     
     def _get_next_market_open(self):
@@ -373,7 +344,7 @@ class Orchestrator:
                         return market_open
                         
                 except Exception as e:
-                    print(f"[{datetime.now().isoformat()}] Error parsing schedule")
+                    print(f"[ERROR] Error parsing market schedule for {check_date}: {str(e)}")
                     continue
         
         return None
@@ -385,12 +356,6 @@ class Orchestrator:
 
 def main():
     """Main entry point"""
-    print(f"[{datetime.now().isoformat()}] AutoTrader starting")
-    print(f"[{datetime.now().isoformat()}] Components initializing")
-    print(f"[{datetime.now().isoformat()}] Starting orchestrator")
-    print(f"[{datetime.now().isoformat()}] Starting API server")
-    print(f"[{datetime.now().isoformat()}] Starting WebSocket")
-    
     orchestrator = Orchestrator()
     orchestrator.run()
 

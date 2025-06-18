@@ -51,9 +51,6 @@ class AlpacaWrapper:
             secret_key=secret,
             paper=paper_trading
         )
-        
-        mode = "PAPER" if paper_trading else "**REAL**"
-        print(f"[{datetime.now().isoformat()}] Initialized Alpaca client")
 
 
 ################################################################################
@@ -73,7 +70,7 @@ class AlpacaWrapper:
             cash = float(account.cash)
             return cash
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Error getting cash")
+            print(f"[ERROR] Failed to get account cash: {str(e)}")
             raise
 
 
@@ -106,7 +103,7 @@ class AlpacaWrapper:
             
         except Exception as e:
             # If we can't find the asset, it's not valid
-            print(f"[{datetime.now().isoformat()}] Ticker validation failed")
+            print(f"[INFO] Ticker {symbol} validation failed: {str(e)}")
             return False
 
 
@@ -138,7 +135,6 @@ class AlpacaWrapper:
             )
             
             # Submit order
-            print(f"[{datetime.now().isoformat()}] Submitting buy order")
             order = self.client.submit_order(order_request)
             
             # Wait for fill (market orders should fill immediately)
@@ -151,11 +147,10 @@ class AlpacaWrapper:
                 order = self.client.get_order_by_id(order.id)
                 filled_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
             
-            print(f"[{datetime.now().isoformat()}] Buy order filled")
             return filled_price
             
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Buy order failed")
+            print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [ERROR] Buy order failed for {ticker}: {str(e)}")
             raise
 
     def place_market_sell(self, ticker: str, shares: int) -> float:
@@ -182,7 +177,6 @@ class AlpacaWrapper:
             )
             
             # Submit order
-            print(f"[{datetime.now().isoformat()}] Submitting sell order")
             order = self.client.submit_order(order_request)
             
             # Wait for fill (market orders should fill immediately)
@@ -194,9 +188,8 @@ class AlpacaWrapper:
                 order = self.client.get_order_by_id(order.id)
                 filled_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
             
-            print(f"[{datetime.now().isoformat()}] Sell order filled")
             return filled_price
             
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Sell order failed")
+            print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [ERROR] Sell order failed for {ticker}: {str(e)}")
             raise

@@ -11,7 +11,7 @@
 
 let algorithms = [];
 let marketOpen = false;
-let totalAccountValue = 0;
+let availableCashForAllocation = 0;  // Changed from totalAccountValue
 let availableCash = 0;
 let availableAlgorithmTypes = [];
 let currentPinAction = null;
@@ -130,7 +130,7 @@ async function loadData() {
     
     algorithms = data.algorithms || [];
     marketOpen = data.market_open || false;
-    totalAccountValue = data.total_account_value || 0;
+    availableCashForAllocation = data.available_cash || 0;  // Changed to use available_cash
     
     updateDisplay();
     adjustPollingInterval();
@@ -205,7 +205,7 @@ function updatePositionIndicators() {
 }
 
 function updateTotalValue() {
-  elements.totalValue.textContent = formatCurrency(totalAccountValue);
+  elements.totalValue.textContent = formatCurrency(availableCashForAllocation);  // Display available cash
 }
 
 function updateAlgorithmCards() {

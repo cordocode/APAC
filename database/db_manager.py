@@ -30,7 +30,7 @@ def initialize_database():
     Creates the market-hours-only stock_prices table using Alpaca Calendar API.
     Only contains valid market minutes from 2018-2028, no weekends/holidays.
     """
-    print(f"[{datetime.now().isoformat()}] Initializing database")
+    print("[INFO] Initializing stock price database")
     
     # Import calendar manager
     from calendar_manager import MarketCalendar
@@ -47,8 +47,9 @@ def initialize_database():
     
     # Check if table is already populated
     cursor.execute('SELECT COUNT(*) FROM stock_prices')
-    if cursor.fetchone()[0] > 0:
-        print(f"[{datetime.now().isoformat()}] Database already initialized")
+    row_count = cursor.fetchone()[0]
+    if row_count > 0:
+        print(f"[INFO] Database already initialized with {row_count:,} market minutes")
         conn.close()
         return
     
@@ -57,7 +58,6 @@ def initialize_database():
     market_minutes = calendar.generate_all_market_minutes(2018, 2028)
     
     # Insert all valid market minutes
-    print(f"[{datetime.now().isoformat()}] Inserting market minutes")
     cursor.executemany(
         'INSERT INTO stock_prices (minute_timestamp) VALUES (?)',
         [(minute,) for minute in market_minutes]
@@ -66,8 +66,7 @@ def initialize_database():
     conn.commit()
     conn.close()
     
-    print(f"[{datetime.now().isoformat()}] Database initialized successfully")
-    print(f"[{datetime.now().isoformat()}] Market minutes validated")
+    print(f"[OK] Database initialized with {len(market_minutes):,} market minutes (2018-2028)")
 
 
 ################################################################################
@@ -102,10 +101,10 @@ def add_ticker_if_missing(ticker: str):
             alter_query = f"ALTER TABLE stock_prices ADD COLUMN {ticker} TEXT"
             cursor.execute(alter_query)
             conn.commit()
-            print(f"[{datetime.now().isoformat()}] Added ticker column")
+            print(f"[OK] Added column for ticker: {ticker}")
             
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Ticker add error")
+        print(f"[ERROR] Failed to add column for {ticker}: {str(e)}")
         raise
     finally:
         conn.close()
@@ -141,7 +140,7 @@ def insert_minute_data(ticker: str, timestamp: str, ohlcv_dict: Dict):
         return cursor.rowcount
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Data insert error")
+        print(f"[ERROR] Failed to insert {ticker} data at {timestamp}: {str(e)}")
         conn.rollback()
         raise
     finally:
@@ -181,11 +180,13 @@ def insert_historical_data(ticker: str, data_array: List[Dict]):
         rows_updated = cursor.rowcount
         conn.commit()
         
-        print(f"[{datetime.now().isoformat()}] Bulk data updated")
+        if rows_updated > 0:
+            print(f"[INFO] Stored {rows_updated} historical bars for {ticker}")
+        
         return rows_updated
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Bulk insert error")
+        print(f"[ERROR] Failed to store historical data for {ticker}: {str(e)}")
         conn.rollback()
         raise
     finally:
@@ -235,7 +236,7 @@ def get_latest_price(ticker: str) -> Optional[Dict]:
             return None
             
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Price retrieval error")
+        print(f"[ERROR] Failed to get latest price for {ticker}: {str(e)}")
         raise
     finally:
         conn.close()
@@ -269,8 +270,6 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         if before_timestamp is None:
             before_timestamp = datetime.now(pytz.UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
         
-        print(f"[{datetime.now().isoformat()}] Getting price bars")
-        
         conn = sqlite3.connect('database/stocks.db')
         cursor = conn.cursor()
         
@@ -287,7 +286,7 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         timestamp_rows = cursor.fetchall()
         
         if not timestamp_rows:
-            print(f"[{datetime.now().isoformat()}] No timestamps found")
+            print(f"[WARN] No timestamps found for {ticker} before {before_timestamp}")
             conn.close()
             return []
         
@@ -295,8 +294,6 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         timestamps = [row[0] for row in timestamp_rows]
         newest_timestamp = timestamps[0]
         oldest_timestamp = timestamps[-1]
-        
-        print(f"[{datetime.now().isoformat()}] Target range identified")
         
         # Step 2: Check which of these timestamps have data
         placeholders = ','.join(['?' for _ in timestamps])
@@ -313,11 +310,9 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         non_null_count = sum(1 for row in data_rows if row[1] is not None)
         null_count = len(timestamps) - non_null_count
         
-        print(f"[{datetime.now().isoformat()}] Data availability checked")
-        
         # Step 3: If ANY data is missing, fetch it
         if null_count > 0 or non_null_count < n:
-            print(f"[{datetime.now().isoformat()}] Missing data detected")
+            print(f"[INFO] Missing {null_count} bars for {ticker} in range {oldest_timestamp[:10]} to {newest_timestamp[:10]}")
             
             # Calculate date range to fetch
             fetch_start_date = oldest_timestamp[:10]
@@ -329,14 +324,11 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
                 fetch_start_dt = datetime.strptime(fetch_start_date, '%Y-%m-%d') - timedelta(days=1)
                 fetch_start_date = fetch_start_dt.strftime('%Y-%m-%d')
             
-            print(f"[{datetime.now().isoformat()}] Fetching missing data")
-            
             conn.close()  # Close before fetching
             
             from database.historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             result = fetcher.fetch_and_store(ticker, fetch_start_date, fetch_end_date)
-            print(f"[{datetime.now().isoformat()}] Fetch operation completed")
             
             # Reconnect after fetch
             conn = sqlite3.connect('database/stocks.db')
@@ -362,18 +354,14 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
                 ohlcv = json.loads(json_data)
                 results.append({"timestamp": timestamp, "ohlcv": ohlcv})
         
-        if results:
-            print(f"[{datetime.now().isoformat()}] Returning price data")
-        else:
-            print(f"[{datetime.now().isoformat()}] No data available")
+        if not results:
+            print(f"[WARN] No data available for {ticker} after attempting fetch")
         
         return results
         
     elif requirement_type == 'time_range':
         start = kwargs['start']
         end = kwargs['end']
-        
-        print(f"[{datetime.now().isoformat()}] Getting time range")
         
         # Simple range query - non-market times don't exist in DB
         conn = sqlite3.connect('database/stocks.db')
@@ -402,7 +390,8 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
         conn.close()
         
         if len(rows) < expected_count:
-            print(f"[{datetime.now().isoformat()}] Missing data detected")
+            actual_pct = (len(rows) / expected_count * 100) if expected_count > 0 else 0
+            print(f"[INFO] Missing data for {ticker}: have {actual_pct:.1f}% of expected bars in range")
             
             # Fetch missing data for the date range
             start_date = start[:10]
@@ -411,9 +400,7 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
             from database.historical_pull import HistoricalFetcher
             fetcher = HistoricalFetcher()
             
-            print(f"[{datetime.now().isoformat()}] Fetching missing data")
             result = fetcher.fetch_and_store(ticker, start_date, end_date)
-            print(f"[{datetime.now().isoformat()}] Fetch operation completed")
             
             # Re-query after fetch
             conn = sqlite3.connect('database/stocks.db')
@@ -429,7 +416,6 @@ def get_data_for_algorithm(ticker: str, requirement_type: str, **kwargs) -> List
             ohlcv = json.loads(json_data)
             results.append({"timestamp": timestamp, "ohlcv": ohlcv})
         
-        print(f"[{datetime.now().isoformat()}] Returning time range")
         return results
     
     else:
@@ -484,7 +470,7 @@ def get_database_stats() -> Dict:
         }
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Database stats error")
+        print(f"[ERROR] Failed to get database statistics: {str(e)}")
         raise
     finally:
         conn.close()

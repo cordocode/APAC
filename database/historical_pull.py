@@ -45,7 +45,7 @@ class HistoricalFetcher:
         self.eastern = pytz.timezone('US/Eastern')
         self.utc = pytz.UTC
         
-        print(f"[{datetime.now().isoformat()}] Historical fetcher initialized")
+        print("[OK] Historical fetcher initialized")
 
 
 ################################################################################
@@ -64,8 +64,6 @@ class HistoricalFetcher:
         Returns:
             Dict with fetch status and details
         """
-        print(f"[{datetime.now().isoformat()}] Fetching historical data")
-        
         # Fetch from Alpaca API
         try:
             # Create timezone-aware datetime objects for market hours
@@ -85,7 +83,7 @@ class HistoricalFetcher:
                 feed=os.getenv('ALPACA_FEED', 'iex')
             )
             
-            print(f"[{datetime.now().isoformat()}] Requesting Alpaca data")
+            print(f"[INFO] Requesting {ticker} bars from {start_date} to {end_date}")
             bars = self.client.get_stock_bars(request_params)
             
             # Convert Alpaca response to our format
@@ -94,7 +92,7 @@ class HistoricalFetcher:
             try:
                 ticker_bars = list(bars[ticker])
                 if ticker_bars:
-                    print(f"[{datetime.now().isoformat()}] Received data bars")
+                    print(f"[OK] Received {len(ticker_bars)} bars for {ticker}")
 
                     self.stored_count = 0
                     self.orphaned_bars = []
@@ -130,7 +128,7 @@ class HistoricalFetcher:
                         "date_range": f"{start_date} to {end_date}"
                     }
                 else:
-                    print(f"[{datetime.now().isoformat()}] No data returned")
+                    print(f"[WARN] No data returned for {ticker} from {start_date} to {end_date}")
                     return {
                         "status": "no_data", 
                         "rows_updated": 0,
@@ -139,7 +137,7 @@ class HistoricalFetcher:
                     }
                     
             except (KeyError, IndexError) as e:
-                print(f"[{datetime.now().isoformat()}] Data retrieval error")
+                print(f"[ERROR] Failed to retrieve {ticker} data: {str(e)}")
                 return {
                     "status": "no_data", 
                     "rows_updated": 0,
@@ -148,7 +146,7 @@ class HistoricalFetcher:
                 }
                 
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Alpaca fetch error")
+            print(f"[ERROR] Alpaca API error for {ticker}: {str(e)}")
             return {
                 "status": "error", 
                 "error": str(e),
@@ -173,12 +171,10 @@ class HistoricalFetcher:
         Returns:
             Dict with results for each ticker
         """
-        print(f"[{datetime.now().isoformat()}] Batch fetch started")
+        print(f"[INFO] Starting batch fetch for {len(tickers)} tickers")
         
         results = {}
         for i, ticker in enumerate(tickers, 1):
-            print(f"\n[{datetime.now().isoformat()}] Processing ticker batch")
-            
             try:
                 result = self.fetch_and_store(ticker, start_date, end_date)
                 results[ticker] = result
@@ -188,7 +184,6 @@ class HistoricalFetcher:
                 time.sleep(0.1)
                 
             except Exception as e:
-                print(f"[{datetime.now().isoformat()}] Ticker fetch failed")
                 results[ticker] = {
                     "status": "error",
                     "error": str(e),
@@ -200,9 +195,7 @@ class HistoricalFetcher:
         successful = sum(1 for r in results.values() if r['status'] == 'fetched')
         total_rows = sum(r.get('rows_updated', 0) for r in results.values())
         
-        print(f"\n[{datetime.now().isoformat()}] Batch fetch complete")
-        print(f"[{datetime.now().isoformat()}] Fetch summary calculated")
-        print(f"[{datetime.now().isoformat()}] Total rows updated")
+        print(f"[OK] Batch fetch complete: {successful}/{len(tickers)} succeeded, {total_rows} rows updated")
         
         return {
             "summary": {

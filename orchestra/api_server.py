@@ -19,12 +19,21 @@ import threading
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
+# Disable Flask access logs
+import logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+
 # Import our modules
 from system_databse.system_db_manager import (
     get_pin, create_algorithm, stop_algorithm, 
-    get_algorithm, get_all_algorithms, get_transactions
+    get_algorithm, get_all_algorithms, get_transactions,
+    record_sell  # Added import for recording sell transactions
 )
-from system_databse.card_calculations import get_algorithm_with_calculations
+from system_databse.card_calculations import (
+    get_algorithm_with_calculations,
+    calculate_position  # Added import for position calculation
+)
 from orchestra.alpaca_wrapper import AlpacaWrapper
 from database.calendar_manager import MarketCalendar
 from database.db_manager import get_latest_price
@@ -91,7 +100,7 @@ def validate_pin():
             return jsonify({'valid': False}), 200
             
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Error validating PIN")
+        print(f"[ERROR] PIN validation failed: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -108,7 +117,7 @@ def get_algorithms():
         
         # Calculate card data for each algorithm
         algorithm_cards = []
-        total_value = 0
+        total_allocated = 0  # Track total allocated capital
         
         for algo in algorithms:
             try:
@@ -126,9 +135,9 @@ def get_algorithms():
                 if not card_data:
                     continue
                 
-                # Add to running total
-                if 'current_value' in card_data:
-                    total_value += card_data['current_value']
+                # Add to running total of allocated capital
+                if 'initial_capital' in card_data:
+                    total_allocated += card_data['initial_capital']
                     
                     # Add last_updated field from most recent transaction
                     transactions = get_transactions(algo['id'])
@@ -143,15 +152,15 @@ def get_algorithms():
                     
                     algorithm_cards.append(card_data)
             except Exception as e:
-                print(f"[{datetime.now().isoformat()}] Error calculating card")
+                print(f"[ERROR] Failed to calculate metrics for algorithm {algo['display_name']}: {str(e)}")
                 # Skip this algorithm if calculation fails
                 continue
         
         # Get Alpaca account cash
         account_cash = alpaca.get_account_cash()
         
-        # Total account value = cash + all algorithm values
-        total_account_value = account_cash + total_value
+        # Calculate available cash for new allocations
+        available_for_allocation = account_cash - total_allocated
         
         # Check if market is open
         market_open = calendar.is_market_open_now()
@@ -159,11 +168,11 @@ def get_algorithms():
         return jsonify({
             'algorithms': algorithm_cards,
             'market_open': market_open,
-            'total_account_value': total_account_value
+            'available_cash': available_for_allocation  # This is what should be displayed in top right
         }), 200
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Error getting algorithms")
+        print(f"[ERROR] Failed to get algorithms list: {str(e)}")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
@@ -201,10 +210,9 @@ def create_algorithm_endpoint():
         
         # WEBSOCKET INTEGRATION - Subscribe to real-time data immediately
         if ws_manager:
-            print(f"[{datetime.now().isoformat()}] Adding websocket subscription")
             ws_manager.add_algorithm(ticker)
         else:
-            print(f"[{datetime.now().isoformat()}] WebSocket unavailable")
+            print(f"[ERROR] WebSocket manager not available - algorithm {algo_id} will not receive real-time data")
         
         # Get the created algorithm
         algorithm = get_algorithm(algo_id)
@@ -215,38 +223,68 @@ def create_algorithm_endpoint():
         }), 201
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Error creating algorithm")
+        print(f"[ERROR] Failed to create algorithm {algo_type} for {ticker}: {str(e)}")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/algorithms/<int:algo_id>', methods=['DELETE'])
 def stop_algorithm_endpoint(algo_id):
-    """Stop a running algorithm - UNSUBSCRIBES FROM REAL-TIME DATA"""
+    """Stop a running algorithm - SELLS POSITIONS AND UNSUBSCRIBES FROM REAL-TIME DATA"""
     try:
-        # Get algorithm info BEFORE stopping (need ticker for unsubscribe)
+        # Get algorithm info BEFORE stopping (need ticker for unsubscribe and position info)
         algo_data = get_algorithm(algo_id)
         if not algo_data:
             return jsonify({'error': 'Algorithm not found'}), 404
         
         ticker = algo_data['ticker']
+        display_name = algo_data['display_name']
         
-        # Stop the algorithm
+        # Calculate current position
+        current_position = calculate_position(algo_id)
+        
+        # If there are open positions, sell them first
+        if current_position > 0:
+            try:
+                print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [INFO] Closing position: selling {current_position} shares of {ticker} for {display_name}")
+                
+                # Execute market sell order
+                fill_price = alpaca.place_market_sell(ticker, current_position)
+                
+                # Record the sell transaction
+                tx_id = record_sell(algo_id, current_position, fill_price)
+                
+                if tx_id:
+                    print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [OK] Position closed: sold {current_position} {ticker} @ ${fill_price:.2f} (TX: {tx_id}) for {display_name}")
+                
+            except Exception as sell_error:
+                print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [ERROR] Failed to close position for {ticker}: {str(sell_error)}")
+                # Continue with stopping even if sell fails - user can manually close position
+                return jsonify({
+                    'error': f'Failed to close position: {str(sell_error)}. Please close position manually in Alpaca.',
+                    'partial_success': False
+                }), 500
+        
+        # Now stop the algorithm in database
         success = stop_algorithm(algo_id)
         
         if success:
             # WEBSOCKET INTEGRATION - Unsubscribe from real-time data
             if ws_manager:
-                print(f"[{datetime.now().isoformat()}] Removing websocket subscription")
                 ws_manager.remove_algorithm(ticker)
             else:
-                print(f"[{datetime.now().isoformat()}] WebSocket unavailable")
+                print(f"[WARN] WebSocket manager not available - could not unsubscribe {ticker}")
             
-            return jsonify({'success': True}), 200
+            return jsonify({
+                'success': True,
+                'position_closed': current_position > 0,
+                'shares_sold': current_position if current_position > 0 else 0
+            }), 200
         else:
             return jsonify({'error': 'Algorithm not found or already stopped'}), 404
             
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Error stopping algorithm")
+        print(f"[ERROR] Failed to stop algorithm {algo_id}: {str(e)}")
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
@@ -261,22 +299,17 @@ def get_available_algorithms():
         # Path to algorithm directory (singular!)
         algo_dir = Path(__file__).parent.parent / 'algorithm'
         
-        print(f"[{datetime.now().isoformat()}] Scanning algorithm directory")
-        
         if not algo_dir.exists():
-            print(f"[{datetime.now().isoformat()}] Algorithm directory missing")
+            print(f"[ERROR] Algorithm directory not found at {algo_dir}")
             return jsonify([]), 200
         
         # Find all .py files
         available = []
         py_files = list(algo_dir.glob('*.py'))
-        print(f"[{datetime.now().isoformat()}] Found Python files")
+        print(f"[INFO] Found {len(py_files)} Python files in algorithm directory")
         
         for file in py_files:
-            print(f"[{datetime.now().isoformat()}] Checking file")
-            
             if file.stem.startswith('_') or file.stem.startswith('__'):
-                print(f"[{datetime.now().isoformat()}] Skipping private file")
                 continue
                 
             # Try to load the module and check if it has Algorithm class
@@ -290,18 +323,17 @@ def get_available_algorithms():
                         'type': file.stem,
                         'name': file.stem.replace('_', ' ').title()
                     })
-                    print(f"[{datetime.now().isoformat()}] Added algorithm")
                 else:
-                    print(f"[{datetime.now().isoformat()}] No Algorithm class")
+                    print(f"[WARN] {file.stem}.py missing required Algorithm class")
             except Exception as e:
-                print(f"[{datetime.now().isoformat()}] Module load failed")
+                print(f"[ERROR] Failed to load {file.stem}.py: {str(e)}")
                 continue
         
-        print(f"[{datetime.now().isoformat()}] Returning algorithms")
+        print(f"[OK] Found {len(available)} valid algorithms")
         return jsonify(available), 200
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Error scanning algorithms")
+        print(f"[ERROR] Failed to scan algorithm directory: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/account/cash', methods=['GET'])
@@ -317,7 +349,7 @@ def get_account_cash():
         }), 200
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Error getting cash")
+        print(f"[ERROR] Failed to get account cash: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/validate-ticker', methods=['GET'])
@@ -335,7 +367,7 @@ def validate_ticker_endpoint():
         return jsonify({'valid': is_valid}), 200
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Error validating ticker")
+        print(f"[ERROR] Failed to validate ticker {symbol}: {str(e)}")
         return jsonify({'valid': False, 'error': str(e)}), 500
 
 @app.route('/api/market-status', methods=['GET'])
@@ -371,7 +403,7 @@ def get_market_status():
         }), 200
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Error getting status")
+        print(f"[ERROR] Failed to get market status: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -420,12 +452,7 @@ def run_api_server(websocket_manager, port=5001):
     global ws_manager
     ws_manager = websocket_manager
     
-    print(f"[{datetime.now().isoformat()}] Starting API server")
-    print(f"[{datetime.now().isoformat()}] Dashboard available")
-    print(f"[{datetime.now().isoformat()}] API endpoints available")
-    print(f"[{datetime.now().isoformat()}] Check system PIN")
-    print(f"[{datetime.now().isoformat()}] Market status checked")
-    print(f"[{datetime.now().isoformat()}] WebSocket status checked")
+    print(f"[OK] API server running on port {port} - Dashboard: http://localhost:{port}/")
     
     # Run Flask app
     # Use threaded=False since we're already in a thread

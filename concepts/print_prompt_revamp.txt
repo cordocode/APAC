@@ -1,0 +1,186 @@
+# AutoTrader Print Statement Overhaul Guide
+
+## Current Problem
+
+The AutoTrader system currently suffers from **declarative logging** - print statements that announce what the code *hopes* will happen rather than what *actually* happened. Examples:
+
+```python
+print("Starting API server")
+# ... code that might fail ...
+print("API server started")  # Prints regardless of success!
+```
+
+This creates a false sense of security where logs show a "happy path" narrative even when components fail. The system needs **conditional logging** that actually verifies state before reporting it.
+
+## Style Guide for Print Statements
+
+### 1. Time-Related Events
+For events where timing matters (execution, market events, scheduling):
+```python
+# Format: ISO timestamp without milliseconds
+print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] Message here")
+```
+
+### 2. Non-Time Events  
+For status updates, confirmations, or errors where timing isn't critical:
+```python
+# Format: No timestamp, just status indicator
+print("[OK] Algorithm loaded successfully")
+print("[ERROR] Failed to connect to database")
+```
+
+### 3. Visual Status Indicators
+
+**Success/Expected State:**
+```python
+print("[OK] WebSocket connection established")
+print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [OK] Market order filled: {shares} @ ${price}")
+```
+
+**Errors/Issues:**
+```python
+print("[ERROR] Algorithm module not found")
+print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [ERROR] Trade execution failed: {error}")
+```
+
+**Information/Neutral:**
+```python
+print("[INFO] Loading configuration from .env")
+print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [INFO] Checking market status")
+```
+
+**Warnings:**
+```python
+print("[WARN] Low account balance detected")
+print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [WARN] API rate limit approaching")
+```
+
+### 4. Decision Tree for Print Formatting
+
+```
+Is this event time-sensitive?
+├─ YES → Include timestamp
+│   └─ Is it success/failure?
+│       ├─ Success → [timestamp] [OK] Message
+│       ├─ Failure → [timestamp] [ERROR] Message
+│       └─ Neutral → [timestamp] [INFO] Message
+└─ NO → Skip timestamp
+    └─ What type?
+        ├─ Success → [OK] Message
+        ├─ Failure → [ERROR] Message
+        ├─ Warning → [WARN] Message
+        └─ Info → [INFO] Message
+```
+
+## Categories of Fixes Needed
+
+### Type 1: Success Assumptions
+```python
+# BAD: Assumes success
+print(f"[{datetime.now().isoformat()}] Algorithm loaded")
+
+# GOOD: Verify success
+if module:
+    print("[OK] Algorithm module loaded successfully")
+else:
+    print("[ERROR] Failed to load algorithm module")
+```
+
+### Type 2: State Changes
+```python
+# BAD: Just announcing
+print(f"[{datetime.now().isoformat()}] Market closed")
+
+# GOOD: Detecting change with timing
+if market_open != last_market_state:
+    if market_open:
+        print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [OK] Market opened")
+    else:
+        print(f"[{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}] [INFO] Market closed")
+```
+
+### Type 3: Progress Tracking
+```python
+# BAD: Generic progress
+print(f"[{datetime.now().isoformat()}] Executing algorithms")
+
+# GOOD: Specific metrics
+print(f"[INFO] Executing {len(algorithms)} algorithms")
+# ... after execution ...
+if success == total:
+    print(f"[OK] All {total} algorithms executed successfully")
+else:
+    print(f"[WARN] Completed: {success}/{total} algorithms succeeded")
+```
+
+### Type 4: System Initialization
+```python
+# BAD: Sequential assumptions
+print(f"[{datetime.now().isoformat()}] Starting orchestrator")
+print(f"[{datetime.now().isoformat()}] Starting API server")
+print(f"[{datetime.now().isoformat()}] Starting WebSocket")
+
+# GOOD: Actual verification
+components = []
+try:
+    orchestrator = Orchestrator()
+    components.append("Orchestrator")
+except Exception as e:
+    print(f"[ERROR] Orchestrator initialization failed: {e}")
+    
+# ... similar for other components ...
+
+if len(components) == expected_components:
+    print(f"[OK] All components initialized: {', '.join(components)}")
+else:
+    print(f"[WARN] Partial initialization: {len(components)}/{expected_components} components")
+```
+```
+
+## Systematic Review Process
+
+### For Each File:
+
+1. **List every print statement** with line numbers and context
+
+2. **Categorize each print**:
+   - **REMOVE**: Redundant or useless
+   - **CONVERT**: Change from declarative to conditional
+   - **RELOCATE**: Move to where actual verification happens
+   - **ENHANCE**: Add actual state checking
+   - **KEEP**: Already properly conditional
+
+3. **Determine timing relevance**:
+   - Time-critical: Market events, execution timing, scheduling
+   - Not time-critical: Status updates, configuration, initialization
+
+4. **Create plan** for each statement with proposed changes
+
+5. **After agreement**, provide complete updated file maintaining:
+   - Same functionality
+   - Same general file layout
+   - Only modifying print statements
+
+## End Goal
+
+A logging system where:
+- Every print reflects **actual system state**, not wishes
+- Time is shown only when **temporally relevant**
+- Visual indicators make **status immediately clear** using [OK], [ERROR], [WARN], [INFO]
+- Errors are **clearly distinguished** from success
+- Progress includes **meaningful metrics**
+- Debugging is **easier** because logs are trustworthy
+- No redundant or misleading output
+
+## Implementation Notes
+
+1. **Import needed for time formatting**:
+   ```python
+   from datetime import datetime
+   ```
+
+2. **Status tags** to ensure consistency:
+   - `[OK]` for successful operations
+   - `[ERROR]` for failures
+   - `[WARN]` for warnings
+   - `[INFO]` for neutral information

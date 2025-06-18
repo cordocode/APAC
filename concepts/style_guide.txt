@@ -2,9 +2,6 @@ Auto Trader Bot - Unified Style Guide
 AI Refactoring Prompt
 Copy this prompt when refactoring code:
 Your job as an AI is to look at this code and remake it so that it matches our style guide WITHOUT changing any of the functionality. The code must work exactly the same way after refactoring. Only restructure for consistency and readability according to the style guide rules below.
-Quick Conversion Guide
-For the most common print patterns in the codebase:
-Current PatternConvert To[12:28:00] 📊 Stored NVDA: $144.39[2025-06-12T18:28:00Z] Stored price data🔍 Getting last 11 bars for AAPL[timestamp] Getting price bars📡 Requesting data from Alpaca API...[timestamp] Requesting Alpaca data✅ Historical data fetcher initialized[timestamp] Initialized data fetcher❌ Missing 1 data points[timestamp] Missing data detected📥 Received 774 bars from Alpaca[timestamp] Received data barsINFO:algorithm.test_algo:Current position: 10 shares[timestamp] Current position calculated
 
 🔥 Core Principles
 
@@ -92,78 +89,27 @@ One blank line between groups
 
 
 🖨️ Print Statements / Logging Format
-Unified Format (CRITICAL)
-Every single print/log statement follows this exact format:
-[ISO-8601-TIMESTAMP] Action description
-Python Implementation
-python# For regular prints
-from datetime import datetime
-print(f"[{datetime.now().isoformat()}] Stored price data")
 
-# For logging
-import logging
-# Configure formatter ONCE at file top
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] %(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%SZ'
-)
-logger = logging.getLogger(__name__)
-logger.info("Algorithm initialized")
-Before → After Examples
-python# ❌ WRONG (current mess)
-[12:28:00] 📊 Stored NVDA: $144.39 at 2025-06-12T18:27:00Z
-🔍 Getting last 11 bars for AAPL before 2025-06-11T19:56:02Z
-📡 Requesting data from Alpaca API...
-INFO:algorithm.test_algo:Current position: 10 shares
+**IMPORTANT**: For all print statement formatting and logging, refer to the **AutoTrader Print Statement Overhaul Guide**. 
 
-# ✅ CORRECT (unified)
-[2025-06-12T18:28:00Z] Stored NVDA price
-[2025-06-11T19:56:02Z] Getting price bars
-[2025-06-11T19:56:02Z] Requesting Alpaca data
-[2025-06-11T19:56:02Z] Current position calculated
-Standard Action Descriptions
-Use these exact phrases for common actions:
+The print overhaul guide provides:
+- Detailed formatting rules for time-sensitive vs non-time-sensitive events
+- Status indicators: [OK], [ERROR], [WARN], [INFO]
+- Decision tree for choosing appropriate format
+- Examples of conditional vs declarative logging
+- Complete transformation patterns
 
-Data Operations: "Stored price data", "Fetched historical data", "Updated database"
-Trading: "Placed buy order", "Placed sell order", "Order filled"
-System: "Started algorithm", "Stopped algorithm", "Connected WebSocket"
-Calculations: "Calculated position", "Updated portfolio", "Computed average"
-API: "API request sent", "API response received", "Validated ticker"
+Key points from the print guide:
+- Time-sensitive events (trades, market events): Include timestamp without milliseconds
+- Non-time events (initialization, status): No timestamp needed
+- All prints must verify actual state, not assume success
+- Remove all emojis from print statements
 
-Rules for Print Statements:
-
-NO EMOJIS (remove all 📊 🔍 ✅ ❌ etc.)
-2-4 words max for action description
-No variable data in the action (no prices, no symbols, no counts)
-Always ISO 8601 with 'Z' suffix
-Capitalized first word ("Stored data" not "stored data")
-
-Special Cases
-
-Flask/Werkzeug logs - Leave unchanged (can't control framework logs)
-127.0.0.1 - - [12/Jun/2025 12:28:11] "GET /api/algorithms HTTP/1.1" 200 -
-
-Multi-line debug info - Convert to single lines
-python# ❌ WRONG
-INFO:algorithm.test_algo:
-==================================================
-INFO:algorithm.test_algo:TEST_ALGO running for AAPL
-
-# ✅ CORRECT
-[2025-06-11T19:56:02Z] Algorithm started
-[2025-06-11T19:56:02Z] Processing AAPL data
-
-Progress indicators - Simplify to status updates
-python# ❌ WRONG
-📥 Received 774 bars from Alpaca
-✅ Returning 10 bars from 2025-06-11T19:46:00Z
-
-# ✅ CORRECT  
-[2025-06-11T19:56:02Z] Received data bars
-[2025-06-11T19:56:02Z] Processed data bars
-
-
+When refactoring print statements, follow the print overhaul guide's systematic approach:
+1. Identify if timing matters for the event
+2. Choose appropriate status indicator
+3. Convert from declarative to conditional where needed
+4. Ensure actual state verification
 
 💻 Code Style
 Indentation
@@ -245,12 +191,13 @@ When you receive code to refactor:
 First - Verify imports, paths, and function signatures remain EXACTLY the same
 Add file header comment with the format shown above
 Keep imports at top but DO NOT change their paths
-Convert ALL print/log statements to unified format:
+Convert ALL print/log statements according to the **AutoTrader Print Statement Overhaul Guide**:
 
-Remove ALL emojis (🔍 📊 ✅ ❌ etc.)
-Add ISO timestamps to every print
-Simplify descriptions to 2-4 words
-Use standard action vocabulary
+Follow the print guide's decision tree for format selection
+Use [OK], [ERROR], [WARN], [INFO] status indicators
+Add timestamps only for time-sensitive events
+Convert declarative prints to conditional verification
+Remove ALL emojis
 
 
 Convert multi-line logging blocks to single-line format
@@ -265,10 +212,11 @@ REMEMBER: system_databse (typo) and /algorithm/ (singular) are CORRECT - do not 
 
 📋 Quick Reference
 
-Timestamp format: datetime.now().isoformat() (Python) or new Date().toISOString() (JavaScript)
-Print format: [timestamp] Two three words
-No emojis: 🚫 ❌ ⚠️ → Replace with text
+Timestamp format: datetime.now().strftime('%Y-%m-%dT%H:%M:%S') (no milliseconds)
+Status tags: [OK], [ERROR], [WARN], [INFO]
+No emojis: 🚫 ❌ ⚠️ → Replace with status tags
 Headers: Use # characters for visual separation
+Print formatting: Refer to AutoTrader Print Statement Overhaul Guide
 
 
 🎯 Final Output Requirements

@@ -45,7 +45,7 @@ class RealtimeStreamer:
         try:
             feed_enum = getattr(DataFeed, feed_str)
         except AttributeError:
-            print(f"[{datetime.now().isoformat()}] Invalid feed warning")
+            print(f"[WARN] Invalid ALPACA_FEED '{feed_str}' in .env - defaulting to IEX")
             feed_enum = DataFeed.IEX
 
         # Initialize websocket client
@@ -59,8 +59,7 @@ class RealtimeStreamer:
         self.subscribed_symbols: Set[str] = set()
         self.utc = pytz.UTC
         
-        print(f"[{datetime.now().isoformat()}] Realtime streamer initialized")
-        print(f"[{datetime.now().isoformat()}] Data feed configured")
+        print(f"[OK] Realtime streamer initialized with feed: {feed_str}")
 
 
 ################################################################################
@@ -92,14 +91,11 @@ class RealtimeStreamer:
             from database.db_manager import insert_minute_data
             rows_updated = insert_minute_data(data.symbol, timestamp, ohlcv)
             
-            if rows_updated > 0:
-                print(f"[{datetime.now().isoformat()}] Stored price data")
-            else:
-                # This could happen if timestamp doesn't exist in database (non-market hours)
-                print(f"[{datetime.now().isoformat()}] Non-market data skipped")
+            # Silent operation - no prints for successful storage (too frequent)
+            # Only print errors which are handled in except block
                 
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Bar handling error")
+            print(f"[ERROR] Failed to store bar for {data.symbol} at {data.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')}: {str(e)}")
 
 
 ################################################################################
@@ -123,10 +119,7 @@ class RealtimeStreamer:
         new_symbols = set(symbols) - self.subscribed_symbols
         self.subscribed_symbols.update(symbols)
         
-        if new_symbols:
-            print(f"[{datetime.now().isoformat()}] Subscribed to bars")
-        
-        print(f"[{datetime.now().isoformat()}] Active subscriptions updated")
+        # Silent operation - WebSocket manager handles logging
 
     def unsubscribe(self, symbols):
         """
@@ -145,10 +138,7 @@ class RealtimeStreamer:
         removed_symbols = set(symbols) & self.subscribed_symbols
         self.subscribed_symbols.difference_update(symbols)
         
-        if removed_symbols:
-            print(f"[{datetime.now().isoformat()}] Unsubscribed from symbols")
-        
-        print(f"[{datetime.now().isoformat()}] Remaining subscriptions counted")
+        # Silent operation - WebSocket manager handles logging
 
     def get_subscribed_symbols(self) -> Set[str]:
         """
@@ -169,7 +159,6 @@ class RealtimeStreamer:
         if not symbols:
             return
         
-        print(f"[{datetime.now().isoformat()}] Batch subscription started")
         self.subscribe(symbols)
 
 
@@ -182,19 +171,12 @@ class RealtimeStreamer:
         Start the WebSocket stream.
         This is a blocking call that runs the WebSocket event loop.
         """
-        if not self.subscribed_symbols:
-            print(f"[{datetime.now().isoformat()}] No symbols warning")
-        
-        print(f"[{datetime.now().isoformat()}] Starting stream")
-        print(f"[{datetime.now().isoformat()}] Stream symbols listed")
-        print(f"[{datetime.now().isoformat()}] Stream running")
-        
         try:
             self.stream.run()
         except KeyboardInterrupt:
-            print(f"\n[{datetime.now().isoformat()}] Stream stopped")
+            print("[INFO] WebSocket stream stopped by user")
         except Exception as e:
-            print(f"\n[{datetime.now().isoformat()}] Stream error")
+            print(f"[ERROR] WebSocket stream crashed: {str(e)}")
             raise
 
     async def run_async(self):
@@ -202,14 +184,12 @@ class RealtimeStreamer:
         Start the WebSocket stream asynchronously.
         Use this when running the stream in a separate thread or async context.
         """
-        print(f"[{datetime.now().isoformat()}] Starting async stream")
-        
         try:
             await self.stream._run_forever()
         except KeyboardInterrupt:
-            print(f"\n[{datetime.now().isoformat()}] Async stream stopped")
+            print("[INFO] WebSocket stream stopped by user")
         except Exception as e:
-            print(f"\n[{datetime.now().isoformat()}] Async stream error")
+            print(f"[ERROR] WebSocket stream crashed: {str(e)}")
             raise
 
     def stop(self):
@@ -218,9 +198,9 @@ class RealtimeStreamer:
         """
         try:
             self.stream.stop()
-            print(f"[{datetime.now().isoformat()}] WebSocket stopped")
+            # Silent - orchestrator handles shutdown logging
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Stop error")
+            print(f"[ERROR] Failed to stop WebSocket stream: {str(e)}")
 
 
 ################################################################################
@@ -243,18 +223,5 @@ class RealtimeStreamer:
 
     def print_status(self):
         """Print current stream status to console"""
-        status = self.get_stream_status()
-        
-        print("\n" + "="*50)
-        print(f"[{datetime.now().isoformat()}] Stream status header")
-        print("="*50)
-        print(f"[{datetime.now().isoformat()}] Data feed displayed")
-        print(f"[{datetime.now().isoformat()}] Trading mode displayed")
-        print(f"[{datetime.now().isoformat()}] Subscription count shown")
-        
-        if status['subscribed_symbols']:
-            print(f"[{datetime.now().isoformat()}] Symbol list displayed")
-        else:
-            print(f"[{datetime.now().isoformat()}] No symbols message")
-        
-        print("="*50 + "\n")
+        # This function is not used in production - removing verbose output
+        pass

@@ -60,8 +60,6 @@ class MarketCalendar:
         self.calendar_cache = {}
         self.eastern = pytz.timezone('US/Eastern')
         self.utc = pytz.UTC
-        
-        print(f"[{datetime.now().isoformat()}] Market calendar initialized")
 
 
 ################################################################################
@@ -95,10 +93,12 @@ class MarketCalendar:
                     })
                 
                 self.calendar_cache[cache_key] = calendar_data
-                print(f"[{datetime.now().isoformat()}] Retrieved trading days")
+                
+                if calendar_data:
+                    print(f"[INFO] Retrieved {len(calendar_data)} trading days for {start_date} to {end_date}")
                 
             except Exception as e:
-                print(f"[{datetime.now().isoformat()}] Calendar fetch error")
+                print(f"[ERROR] Failed to fetch calendar for {start_date} to {end_date}: {str(e)}")
                 raise
         
         return self.calendar_cache[cache_key]
@@ -106,7 +106,7 @@ class MarketCalendar:
     def clear_calendar_cache(self):
         """Clear calendar cache (call this daily or when needed)"""
         self.calendar_cache.clear()
-        print(f"[{datetime.now().isoformat()}] Calendar cache cleared")
+        print("[INFO] Calendar cache cleared")
 
 
 ################################################################################
@@ -124,8 +124,6 @@ class MarketCalendar:
         Returns:
             List of UTC timestamp strings in 'YYYY-MM-DDTHH:MM:SSZ' format
         """
-        print(f"[{datetime.now().isoformat()}] Generating market minutes")
-        
         # Get full calendar for entire range
         start_date = f"{start_year}-01-01"
         end_date = f"{end_year}-12-31"
@@ -139,8 +137,6 @@ class MarketCalendar:
         total_days = len(market_schedule)
         days_processed = 0
         
-        print(f"[{datetime.now().isoformat()}] Processing trading days")
-        
         for day_info in market_schedule:
             date_str = day_info['date']
             open_time = day_info['open']
@@ -152,12 +148,10 @@ class MarketCalendar:
             
             days_processed += 1
             
-            # Simple progress every 500 days
+            # Progress update every 500 days
             if days_processed % 500 == 0:
-                print(f"[{datetime.now().isoformat()}] Processing progress update")
-        
-        print(f"[{datetime.now().isoformat()}] Generated market minutes")
-        print(f"[{datetime.now().isoformat()}] Date range computed")
+                pct_complete = (days_processed / total_days) * 100
+                print(f"[INFO] Processing market minutes: {days_processed}/{total_days} days ({pct_complete:.1f}% complete)")
         
         return market_minutes
 
@@ -224,7 +218,7 @@ class MarketCalendar:
             clock = self.client.get_clock()
             return clock.is_open
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Market status error")
+            print(f"[ERROR] Failed to get market status from Alpaca: {str(e)}")
             return False
 
     def get_market_status(self) -> Dict:
@@ -243,7 +237,7 @@ class MarketCalendar:
                 'next_close': clock.next_close.strftime('%Y-%m-%dT%H:%M:%SZ')
             }
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Market status error")
+            print(f"[ERROR] Failed to get market status from Alpaca: {str(e)}")
             return {
                 'is_open': False,
                 'current_time': datetime.now(self.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),

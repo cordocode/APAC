@@ -40,20 +40,17 @@ class WebSocketManager:
         self.running = False
         self._lock = threading.Lock()  # Thread safety for ticker counts
         
-        print(f"[{datetime.now().isoformat()}] WebSocket Manager initialized")
+        print("[OK] WebSocket Manager initialized")
     
     def initialize_from_db(self):
         """
         On startup, subscribe to all tickers from running algorithms.
         This ensures we don't miss data for algorithms that were already running.
         """
-        print(f"[{datetime.now().isoformat()}] Initializing subscriptions")
-        
         # Get all running algorithms
         running_algorithms = get_all_algorithms(status='running')
         
         if not running_algorithms:
-            print(f"[{datetime.now().isoformat()}] No running algorithms")
             return
         
         # Count tickers
@@ -66,14 +63,14 @@ class WebSocketManager:
         
         # Subscribe to all unique tickers at once
         if initial_tickers:
-            print(f"[{datetime.now().isoformat()}] Found algorithms")
+            print(f"[INFO] Found {len(running_algorithms)} running algorithms using {len(initial_tickers)} unique tickers")
             self.streamer.subscribe_multiple(list(initial_tickers))
             
             # Show the reference counts
             with self._lock:
                 for ticker, count in self.ticker_counts.items():
                     if count > 0:
-                        print(f"[{datetime.now().isoformat()}] Ticker reference count")
+                        print(f"[INFO] {ticker}: {count} algorithms")
     
     def add_algorithm(self, ticker: str):
         """
@@ -90,10 +87,10 @@ class WebSocketManager:
         
         # If this is the first algorithm using this ticker, subscribe
         if old_count == 0 and new_count == 1:
-            print(f"[{datetime.now().isoformat()}] First algorithm subscribing")
+            print(f"[OK] First algorithm using {ticker} - subscribing to real-time data")
             self.streamer.subscribe(ticker)
         else:
-            print(f"[{datetime.now().isoformat()}] Reference count increased")
+            print(f"[INFO] {ticker} reference count: {old_count} -> {new_count}")
     
     def remove_algorithm(self, ticker: str):
         """
@@ -105,7 +102,7 @@ class WebSocketManager:
         """
         with self._lock:
             if ticker not in self.ticker_counts or self.ticker_counts[ticker] == 0:
-                print(f"[{datetime.now().isoformat()}] Invalid removal attempt")
+                print(f"[WARN] Cannot remove algorithm for {ticker} - not in active subscriptions")
                 return
             
             old_count = self.ticker_counts[ticker]
@@ -114,13 +111,13 @@ class WebSocketManager:
         
         # If no algorithms are using this ticker anymore, unsubscribe
         if new_count == 0:
-            print(f"[{datetime.now().isoformat()}] Last algorithm unsubscribing")
+            print(f"[INFO] Last algorithm stopped using {ticker} - unsubscribing from real-time data")
             self.streamer.unsubscribe(ticker)
             # Clean up the entry
             with self._lock:
                 del self.ticker_counts[ticker]
         else:
-            print(f"[{datetime.now().isoformat()}] Reference count decreased")
+            print(f"[INFO] {ticker} reference count: {old_count} -> {new_count}")
     
     def start(self):
         """
@@ -128,10 +125,8 @@ class WebSocketManager:
         This allows the orchestrator to continue running while receiving real-time data.
         """
         if self.running:
-            print(f"[{datetime.now().isoformat()}] Stream already running")
+            print("[WARN] WebSocket stream already running - ignoring start request")
             return
-        
-        print(f"[{datetime.now().isoformat()}] Starting stream thread")
         
         self.running = True
         self.stream_thread = threading.Thread(target=self._run_stream, name="WebSocketStream")
@@ -140,14 +135,20 @@ class WebSocketManager:
         
         # Give it a moment to start
         time.sleep(1)
-        print(f"[{datetime.now().isoformat()}] Stream thread started")
+        
+        # Verify thread actually started
+        if self.stream_thread.is_alive():
+            print("[OK] WebSocket stream thread started")
+        else:
+            print("[ERROR] WebSocket stream thread failed to start")
+            self.running = False
     
     def _run_stream(self):
         """Internal method that runs the stream (called in thread)"""
         try:
             self.streamer.run()
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Stream error occurred")
+            print(f"[ERROR] WebSocket stream crashed: {str(e)}")
             self.running = False
     
     def stop(self):
@@ -156,10 +157,8 @@ class WebSocketManager:
         Called when orchestrator is shutting down.
         """
         if not self.running:
-            print(f"[{datetime.now().isoformat()}] Stream not running")
+            print("[INFO] WebSocket stream not running - ignoring stop request")
             return
-        
-        print(f"[{datetime.now().isoformat()}] Stopping stream")
         
         self.running = False
         self.streamer.stop()
@@ -168,9 +167,9 @@ class WebSocketManager:
         if self.stream_thread and self.stream_thread.is_alive():
             self.stream_thread.join(timeout=5)
             if self.stream_thread.is_alive():
-                print(f"[{datetime.now().isoformat()}] Thread stop timeout")
+                print("[WARN] WebSocket thread failed to stop after 5 seconds")
             else:
-                print(f"[{datetime.now().isoformat()}] Stream stopped cleanly")
+                print("[OK] WebSocket stream stopped cleanly")
     
     def get_status(self) -> Dict:
         """
@@ -197,15 +196,18 @@ class WebSocketManager:
         """Print detailed status information"""
         status = self.get_status()
         
-        print(f"[{datetime.now().isoformat()}] WebSocket status report")
-        print(f"[{datetime.now().isoformat()}] Manager running")
-        print(f"[{datetime.now().isoformat()}] Thread active")
-        print(f"[{datetime.now().isoformat()}] Total subscriptions")
+        print("[INFO] WebSocket Manager Status:")
+        print(f"  - Running: {status['running']}")
+        print(f"  - Thread alive: {status['thread_alive']}")
+        print(f"  - Total subscriptions: {status['total_subscriptions']}")
         
         if status['reference_counts']:
-            print(f"[{datetime.now().isoformat()}] Reference counts")
+            print(f"  - Active tickers:")
             for ticker, count in sorted(status['reference_counts'].items()):
-                print(f"[{datetime.now().isoformat()}] Ticker count details")
+                print(f"    - {ticker}: {count} algorithms")
+        else:
+            print("  - No active ticker subscriptions")
         
-        if status['subscribed_symbols']:
-            print(f"[{datetime.now().isoformat()}] Active subscriptions")
+        # Show any discrepancies
+        if status['stream_subscriptions'] != status['total_subscriptions']:
+            print(f"[WARN] Subscription count mismatch: Manager has {status['total_subscriptions']}, Stream has {status['stream_subscriptions']}")

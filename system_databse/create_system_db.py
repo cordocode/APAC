@@ -22,6 +22,7 @@ def create_system_database():
     db_dir = "system_databse"
     if not os.path.exists(db_dir):
         os.makedirs(db_dir)
+        print(f"[OK] Created directory: {db_dir}")
     
     db_path = os.path.join(db_dir, "system.db")
     
@@ -77,17 +78,26 @@ def create_system_database():
         # Commit all changes
         conn.commit()
         
-        print(f"[{datetime.now().isoformat()}] Database created successfully")
-        print(f"[{datetime.now().isoformat()}] Tables created")
-        print(f"[{datetime.now().isoformat()}] Default PIN set")
-        
         # Verify the schema by listing tables
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = cursor.fetchall()
-        print(f"[{datetime.now().isoformat()}] Tables verified")
+        
+        if len(tables) == 3:  # Should have 3 tables
+            print(f"[OK] Database created at {db_path}")
+            print(f"[OK] All tables created successfully: {', '.join([t[0] for t in tables])}")
+            
+            # Verify PIN was set
+            cursor.execute("SELECT value FROM system_config WHERE key='pin'")
+            pin_result = cursor.fetchone()
+            if pin_result:
+                print("[OK] Default PIN configured")
+            else:
+                print("[ERROR] Default PIN not set")
+        else:
+            print(f"[ERROR] Expected 3 tables, found {len(tables)}")
         
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Database creation failed")
+        print(f"[ERROR] Database creation failed: {str(e)}")
         conn.rollback()
         raise
     

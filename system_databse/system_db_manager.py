@@ -11,13 +11,14 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
-# Database path
-DB_PATH = "system_databse/system.db"
-
 
 ################################################################################
 # DATABASE CONNECTION
 ################################################################################
+
+# Database path
+DB_PATH = "system_databse/system.db"
+
 
 def get_connection():
     """Get database connection with foreign keys enabled"""
