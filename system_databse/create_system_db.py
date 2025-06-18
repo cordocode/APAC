@@ -78,13 +78,23 @@ def create_system_database():
         # Commit all changes
         conn.commit()
         
-        # Verify the schema by listing tables
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = cursor.fetchall()
+        # Verify the schema by listing tables (excluding SQLite internal tables)
+        cursor.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name NOT LIKE 'sqlite_%'
+            ORDER BY name
+        """)
+        user_tables = cursor.fetchall()
         
-        if len(tables) == 3:  # Should have 3 tables
-            print(f"[OK] Database created at {db_path}")
-            print(f"[OK] All tables created successfully: {', '.join([t[0] for t in tables])}")
+        print(f"[OK] Database created at {db_path}")
+        print(f"[OK] User tables created: {', '.join([t[0] for t in user_tables])}")
+        
+        # Check we have the expected tables
+        expected_tables = {'algorithm_instances', 'transactions', 'system_config'}
+        found_tables = {t[0] for t in user_tables}
+        
+        if expected_tables == found_tables:
+            print("[OK] All expected tables created successfully")
             
             # Verify PIN was set
             cursor.execute("SELECT value FROM system_config WHERE key='pin'")
@@ -94,7 +104,21 @@ def create_system_database():
             else:
                 print("[ERROR] Default PIN not set")
         else:
-            print(f"[ERROR] Expected 3 tables, found {len(tables)}")
+            missing = expected_tables - found_tables
+            extra = found_tables - expected_tables
+            if missing:
+                print(f"[ERROR] Missing expected tables: {', '.join(missing)}")
+            if extra:
+                print(f"[WARN] Unexpected tables found: {', '.join(extra)}")
+        
+        # Note about SQLite internal tables
+        cursor.execute("""
+            SELECT COUNT(*) FROM sqlite_master 
+            WHERE type='table' AND name LIKE 'sqlite_%'
+        """)
+        internal_count = cursor.fetchone()[0]
+        if internal_count > 0:
+            print(f"[INFO] SQLite created {internal_count} internal table(s) (this is normal)")
         
     except Exception as e:
         print(f"[ERROR] Database creation failed: {str(e)}")
